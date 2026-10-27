@@ -1,0 +1,77 @@
+/**
+ * Tests for mode resolution and provider host configuration.
+ */
+import { afterEach, expect, test } from "vitest";
+import {
+  configure,
+  getConfig,
+  isProviderHost,
+  resetConfig,
+  resolveMode,
+} from "../../src/config.js";
+import { InvalidModeError } from "../../src/errors.js";
+
+afterEach(resetConfig);
+
+test("explicit mode wins", () =>
+  expect(resolveMode({ AGENT_RETRACE_MODE: "update", CI: "true" })).toBe("update"));
+test("CI defaults to replay", () => expect(resolveMode({ CI: "1" })).toBe("replay"));
+test.each(["", "0", "false", "FALSE"])("CI=%j counts as unset", (ci) =>
+  expect(resolveMode({ CI: ci })).toBe("auto"),
+);
+test("local defaults to auto", () => expect(resolveMode({})).toBe("auto"));
+test("empty mode counts as unset", () =>
+  expect(resolveMode({ AGENT_RETRACE_MODE: "", CI: "1" })).toBe("replay"));
+test("invalid mode throws", () =>
+  expect(() => resolveMode({ AGENT_RETRACE_MODE: "record" })).toThrow(InvalidModeError));
+test("invalid mode message lists the valid values", () =>
+  expect(() => resolveMode({ AGENT_RETRACE_MODE: "record" })).toThrow(/replay.*auto.*update/));
+
+test("default provider hosts", () => {
+  expect(isProviderHost(new URL("https://api.openai.com/v1/x"))).toBe(true);
+  expect(isProviderHost(new URL("https://API.Anthropic.com/v1/messages"))).toBe(true);
+  expect(isProviderHost(new URL("http://localhost:3000/"))).toBe(false);
+});
+
+test("configured hosts are additive and match host:port", () => {
+  configure({ providerHosts: ["my-gw.example.com", "127.0.0.1:4010"] });
+  expect(isProviderHost(new URL("https://my-gw.example.com/v1"))).toBe(true);
+  expect(isProviderHost(new URL("http://127.0.0.1:4010/v1"))).toBe(true);
+  expect(isProviderHost(new URL("http://127.0.0.1:4011/v1"))).toBe(false);
+  expect(isProviderHost(new URL("https://api.openai.com/"))).toBe(true);
+});
+
+test("a host without a port matches any port", () => {
+  configure({ providerHosts: ["My-GW.example.com"] });
+  expect(isProviderHost(new URL("https://my-gw.example.com:8443/v1"))).toBe(true);
+});
+
+test("configure replaces previous user values", () => {
+  configure({ providerHosts: ["a.example"] });
+  configure({ providerHosts: ["b.example"] });
+  expect(getConfig().providerHosts).toEqual(["api.openai.com", "api.anthropic.com", "b.example"]);
+});
+
+test("provider hosts are lowercased and deduped", () => {
+  configure({ providerHosts: ["API.OPENAI.COM", "x.example", "X.example"] });
+  expect(getConfig().providerHosts).toEqual(["api.openai.com", "api.anthropic.com", "x.example"]);
+});
+
+test("configure sets ignore and redact, and resetConfig clears them", () => {
+  const rule = /sk-[a-z]+/g;
+  configure({ ignore: ["body.metadata"], redact: [rule] });
+  expect(getConfig().ignore).toEqual(["body.metadata"]);
+  expect(getConfig().redact).toEqual([rule]);
+  resetConfig();
+  expect(getConfig()).toEqual({
+    providerHosts: ["api.openai.com", "api.anthropic.com"],
+    ignore: [],
+    redact: [],
+  });
+});
+
+test("isProviderHost accepts an explicit config", () => {
+  const config = { providerHosts: ["only.example"], ignore: [], redact: [] };
+  expect(isProviderHost(new URL("https://only.example/"), config)).toBe(true);
+  expect(isProviderHost(new URL("https://api.openai.com/"), config)).toBe(false);
+});
