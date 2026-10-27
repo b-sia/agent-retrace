@@ -2,7 +2,11 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -20,4 +24,5 @@ jobs:
       - run: npx biome ci .
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:node
       - run: npm run check:package
