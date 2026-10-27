@@ -1,0 +1,287 @@
+/**
+ * The recording file format: types, stable serialization and validated
+ * parsing. Pure, no I/O.
+ */
+import { RecordingFormatError } from "../errors.js";
+
+/** Format version written by this release. */
+export const FORMAT_VERSION = 1;
+
+/** Any value that survives a JSON round trip unchanged. */
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
+
+/** An HTTP request as stored in a recording. Auth headers are never stored. */
+export interface RecordedRequest {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  /** Parsed JSON body. */
+  body?: JsonValue;
+  /** Raw body when it is not JSON. */
+  text?: string;
+}
+
+/** One server-sent event. `data` is parsed JSON; `text` is raw non-JSON data. */
+export interface SseEvent {
+  event?: string;
+  data?: JsonValue;
+  text?: string;
+}
+
+/** An HTTP response as stored in a recording. Exactly one of body/text/events is set. */
+export interface RecordedResponse {
+  status: number;
+  headers: Record<string, string>;
+  body?: JsonValue;
+  text?: string;
+  events?: SseEvent[];
+}
+
+/** A recorded call to a provider host. */
+export interface LlmStep {
+  type: "llm";
+  request: RecordedRequest;
+  response: RecordedResponse;
+}
+
+/** How a recorded tool call ended. */
+export type ToolOutcome =
+  | { type: "return"; value?: JsonValue }
+  | { type: "throw"; name: string; message: string };
+
+/** A recorded call to a wrapped tool. */
+export interface ToolStep {
+  type: "tool";
+  name: string;
+  args: JsonValue[];
+  outcome: ToolOutcome;
+}
+
+/** One step of a recording. */
+export type Step = LlmStep | ToolStep;
+
+/** A whole recording file. */
+export interface Recording {
+  formatVersion: 1;
+  name: string;
+  steps: Step[];
+}
+
+// Keys that read best near the top of an object, in this order. Everything
+// else follows alphabetically, so a file only changes where its data does.
+const KEY_PRIORITY = [
+  "formatVersion",
+  "name",
+  "type",
+  "steps",
+  "method",
+  "url",
+  "status",
+  "headers",
+  "request",
+  "response",
+  "args",
+  "outcome",
+  "value",
+  "message",
+  "event",
+  "data",
+  "text",
+  "body",
+  "events",
+];
+const PRIORITY_RANK = new Map(KEY_PRIORITY.map((key, i) => [key, i]));
+
+/**
+ * Orders two object keys: priority keys first, then by UTF-16 code unit.
+ * `localeCompare` is avoided because its order depends on the machine's locale.
+ *
+ * @param a - First key.
+ * @param b - Second key.
+ * @returns Negative, zero or positive, as for `Array.prototype.sort`.
+ */
+function compareKeys(a: string, b: string): number {
+  const ra = PRIORITY_RANK.get(a) ?? KEY_PRIORITY.length;
+  const rb = PRIORITY_RANK.get(b) ?? KEY_PRIORITY.length;
+  if (ra !== rb) return ra - rb;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Reports whether `JSON.stringify` would leave a property out (or write
+ * `null` for it inside an array).
+ *
+ * @param value - A property or element value.
+ * @returns True for undefined, functions and symbols.
+ */
+function isSkipped(value: unknown): boolean {
+  return value === undefined || typeof value === "function" || typeof value === "symbol";
+}
+
+/**
+ * Serializes one value at a given depth.
+ *
+ * @param value - The value to write.
+ * @param indent - Indentation of the line the value starts on.
+ * @param ancestors - Objects currently being written, to detect cycles.
+ * @returns The JSON text.
+ * @throws {TypeError} On a circular structure or a bigint, as `JSON.stringify` does.
+ */
+function write(value: unknown, indent: string, ancestors: Set<object>): string {
+  if (value !== null && typeof value === "object" && "toJSON" in value) {
+    const toJSON = (value as { toJSON: unknown }).toJSON;
+    if (typeof toJSON === "function") value = toJSON.call(value);
+  }
+  if (value === null || typeof value !== "object") {
+    // Defers to JSON.stringify for strings, numbers (NaN and Infinity become
+    // null) and booleans, and for the TypeError it throws on a bigint.
+    return JSON.stringify(value) ?? "null";
+  }
+  if (ancestors.has(value)) throw new TypeError("Converting circular structure to JSON");
+  ancestors.add(value);
+  const inner = `${indent}  `;
+  let out: string;
+  if (Array.isArray(value)) {
+    const items = value.map((item) => (isSkipped(item) ? "null" : write(item, inner, ancestors)));
+    out = items.length === 0 ? "[]" : `[\n${inner}${items.join(`,\n${inner}`)}\n${indent}]`;
+  } else {
+    const record = value as Record<string, unknown>;
+    const entries = Object.keys(record)
+      .filter((key) => !isSkipped(record[key]))
+      .sort(compareKeys)
+      .map((key) => `${JSON.stringify(key)}: ${write(record[key], inner, ancestors)}`);
+    out = entries.length === 0 ? "{}" : `{\n${inner}${entries.join(`,\n${inner}`)}\n${indent}}`;
+  }
+  ancestors.delete(value);
+  return out;
+}
+
+/**
+ * Serializes a value as pretty JSON with a stable key order: the keys in
+ * `KEY_PRIORITY` first, the rest alphabetically. Arrays keep their order.
+ * Two-space indent and a trailing newline, so files diff cleanly in git.
+ *
+ * `JSON.stringify` cannot do this by reordering keys first: JavaScript objects
+ * always list integer-like keys ("2", "10") before other keys, in numeric
+ * order, whatever order they were inserted in. Python dicts and Go maps
+ * marshalled with sorted keys have no such rule.
+ *
+ * @param value - Any JSON-compatible value.
+ * @returns The JSON text, ending in "\n".
+ * @throws {TypeError} On a circular structure or a bigint.
+ */
+export function stableStringify(value: unknown): string {
+  return `${write(value, "", new Set())}\n`;
+}
+
+/**
+ * Serializes a recording for writing to disk.
+ *
+ * @param r - The recording.
+ * @returns The file contents.
+ */
+export function serializeRecording(r: Recording): string {
+  return stableStringify(r);
+}
+
+/**
+ * Reports whether a value is a plain JSON object (not null, not an array).
+ *
+ * @param value - Any parsed JSON value.
+ * @returns True for objects.
+ */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Reports whether every value of an object is a string.
+ *
+ * @param value - Any parsed JSON value.
+ * @returns True for a string-to-string record.
+ */
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isObject(value) && Object.values(value).every((v) => typeof v === "string");
+}
+
+/**
+ * Checks the shape of one step, enough that later code can index into it
+ * without crashing on a hand-edited file.
+ *
+ * @param step - The parsed step.
+ * @returns Why the step is invalid, or undefined when it is valid.
+ */
+function stepProblem(step: unknown): string | undefined {
+  if (!isObject(step)) return "is not an object";
+  if (step.type === "llm") {
+    const { request, response } = step;
+    if (!isObject(request)) return "has no request object";
+    if (typeof request.method !== "string" || typeof request.url !== "string") {
+      return "has a request without a string method and url";
+    }
+    if (!isStringRecord(request.headers)) return "has request headers that are not all strings";
+    if (!isObject(response)) return "has no response object";
+    if (!Number.isInteger(response.status)) return "has a response without an integer status";
+    if (!isStringRecord(response.headers)) return "has response headers that are not all strings";
+    if (response.events !== undefined && !Array.isArray(response.events)) {
+      return "has response events that are not an array";
+    }
+    return undefined;
+  }
+  if (step.type === "tool") {
+    const { outcome } = step;
+    if (typeof step.name !== "string") return "has no string name";
+    if (!Array.isArray(step.args)) return "has args that are not an array";
+    if (!isObject(outcome)) return "has no outcome object";
+    if (outcome.type === "return") return undefined;
+    if (outcome.type === "throw") {
+      return typeof outcome.name === "string" && typeof outcome.message === "string"
+        ? undefined
+        : "has a thrown outcome without a string name and message";
+    }
+    return `has unknown outcome type ${JSON.stringify(outcome.type)}`;
+  }
+  return `has unknown type ${JSON.stringify(step.type)}`;
+}
+
+/**
+ * Parses and validates a recording file.
+ *
+ * @param text - The file contents.
+ * @param filePath - Path of the file, used in error messages.
+ * @returns The recording.
+ * @throws {RecordingFormatError} When the text is not JSON, the format version
+ *   is missing, not an integer or newer than this release, or the structure or
+ *   a step is malformed.
+ */
+export function parseRecording(text: string, filePath: string): Recording {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new RecordingFormatError(filePath, `not valid JSON (${(err as Error).message})`);
+  }
+  if (!isObject(parsed)) throw new RecordingFormatError(filePath, "not a JSON object");
+  const version = parsed.formatVersion;
+  if (!Number.isInteger(version)) {
+    throw new RecordingFormatError(filePath, "missing or non-integer formatVersion");
+  }
+  if ((version as number) > FORMAT_VERSION) {
+    throw new RecordingFormatError(
+      filePath,
+      `formatVersion ${version} was written by a newer agent-retrace, upgrade the package`,
+    );
+  }
+  if (version !== FORMAT_VERSION) {
+    throw new RecordingFormatError(filePath, `unsupported formatVersion ${version}`);
+  }
+  if (typeof parsed.name !== "string") throw new RecordingFormatError(filePath, "missing name");
+  if (!Array.isArray(parsed.steps)) {
+    throw new RecordingFormatError(filePath, "steps is not an array");
+  }
+  parsed.steps.forEach((step, i) => {
+    const problem = stepProblem(step);
+    if (problem !== undefined) throw new RecordingFormatError(filePath, `step ${i + 1} ${problem}`);
+  });
+  return parsed as unknown as Recording;
+}

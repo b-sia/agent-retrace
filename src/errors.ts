@@ -50,7 +50,7 @@ export class InvalidRecordingNameError extends AgentRetraceError {
    */
   constructor(name: string) {
     super(
-      `Invalid recording name ${JSON.stringify(name)}. Use letters, digits, ".", "_", "-" and "/" separated path segments.`,
+      `Invalid recording name ${JSON.stringify(name)}. Start with a letter or digit, use only letters, digits, spaces, ".", "_" and "-", end with neither "." nor a space, and keep it to 120 characters.`,
     );
     this.recordingName = name;
   }
