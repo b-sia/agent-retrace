@@ -799,6 +799,7 @@ Tests:
 
 **Files:**
 - Create: `src/cli.ts`, `docs/learning/cli.md`
+- Modify: `package.json` (add `"bin": {"agent-retrace": "./dist/cli.js"}`, deferred from Task 1 so publint passes before `dist/cli.js` exists)
 - Test: `test/integration/cli.test.ts`
 
 **Interfaces:**
