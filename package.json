@@ -1,0 +1,64 @@
+{
+  "name": "agent-retrace",
+  "version": "0.1.0",
+  "description": "Record and replay LLM calls in agent tests",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/b-sia/agent-retrace.git"
+  },
+  "keywords": [
+    "llm",
+    "agent",
+    "testing",
+    "record",
+    "replay",
+    "vcr",
+    "openai",
+    "anthropic"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run --project unit",
+    "test:node": "npm run build && node --test test/node-test/",
+    "test:example": "npm run build && vitest run --project example",
+    "check:package": "npm run build && publint && attw --pack . --profile esm-only",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run test:node && npm run test:example && npm run check:package",
+    "prepare": "lefthook install"
+  },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "picocolors": "^1.1.1",
+    "undici": "^7.30.1"
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "^4.0.89",
+    "@ai-sdk/openai": "^4.0.103",
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.6.3",
+    "@types/node": "^22.20.5",
+    "ai": "^7.0.154",
+    "lefthook": "^2.2.2",
+    "openai": "^7.45.0",
+    "publint": "^0.3.25",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
