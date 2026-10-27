@@ -4,8 +4,9 @@
 
 Node has two module systems. CommonJS (CJS) uses `require()` and `module.exports`, loaded
 synchronously. ES modules (ESM) use `import`/`export`, are statically analyzable, and can use
-top-level `await`. New libraries should ship ESM; modern Node (22+) can also `require()` ESM in
-most cases, so ESM-only no longer cuts off CJS consumers.
+top-level `await`. New libraries should ship ESM. Since Node 22.12, `require()` can load ESM
+without a flag (as long as the module has no top-level `await`), so ESM-only no longer cuts off
+CJS consumers - provided the `exports` map offers a condition `require()` can match (see below).
 
 ## `"type": "module"`
 
@@ -16,7 +17,9 @@ This field in `package.json` tells Node that `.js` files in the package are ESM.
 
 `exports` is the package's public surface. Only the listed subpaths can be imported; deep imports
 like `agent-retrace/dist/internal.js` fail. Conditions pick the file per consumer: `types` for
-TypeScript, `import` for ESM. Put `types` first, since conditions are matched in order.
+TypeScript, `import` for ESM, `default` as the fallback. Put `types` first, since conditions are
+matched in order. `require()` matches `require` or `default` but never `import`, so an ESM-only
+package still needs `default` for `require(esm)` to find it.
 `publint` and `attw` (are the types wrong) check that this map is consistent with the files.
 
 ## Why TS imports end in `.js`
