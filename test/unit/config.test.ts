@@ -9,7 +9,7 @@ import {
   resetConfig,
   resolveMode,
 } from "../../src/config.js";
-import { InvalidModeError } from "../../src/errors.js";
+import { InvalidModeError, ReplayUsageError } from "../../src/errors.js";
 
 afterEach(resetConfig);
 
@@ -44,6 +44,64 @@ test("configured hosts are additive and match host:port", () => {
 test("a host without a port matches any port", () => {
   configure({ providerHosts: ["My-GW.example.com"] });
   expect(isProviderHost(new URL("https://my-gw.example.com:8443/v1"))).toBe(true);
+});
+
+test.each([
+  ["gw.example.com:443", "https://gw.example.com/v1"],
+  ["gw.example.com:80", "http://gw.example.com/v1"],
+])("entry %s matches the default port of %s", (entry, url) => {
+  configure({ providerHosts: [entry] });
+  expect(isProviderHost(new URL(url))).toBe(true);
+});
+
+test("an entry with a default port does not match other ports", () => {
+  configure({ providerHosts: ["gw.example.com:443"] });
+  expect(isProviderHost(new URL("http://gw.example.com/v1"))).toBe(false);
+  expect(isProviderHost(new URL("https://gw.example.com:8443/v1"))).toBe(false);
+});
+
+test("a fully qualified hostname with a trailing dot matches", () => {
+  expect(isProviderHost(new URL("https://api.openai.com./v1"))).toBe(true);
+  expect(isProviderHost(new URL("https://api.openai.com.:443/v1"))).toBe(true);
+});
+
+test("entries are trimmed and a trailing dot is dropped", () => {
+  configure({ providerHosts: ["  gw.example.com.\n", "[::1]:4010"] });
+  expect(getConfig().providerHosts).toEqual([
+    "api.openai.com",
+    "api.anthropic.com",
+    "gw.example.com",
+    "[::1]:4010",
+  ]);
+  expect(isProviderHost(new URL("http://[::1]:4010/v1"))).toBe(true);
+});
+
+test.each([
+  "https://gw.example.com",
+  "gw.example.com/v1",
+  "gw.example.com?x=1",
+  "user@gw.example.com",
+  "gw example.com",
+  "gw.example.com:abc",
+  "",
+  "   ",
+])("invalid provider host %j is rejected", (entry) => {
+  expect(() => configure({ providerHosts: [entry] })).toThrow(ReplayUsageError);
+  expect(() => configure({ providerHosts: [entry] })).toThrow(/host:port/);
+});
+
+test("a rejected configure call keeps the previous config", () => {
+  configure({ providerHosts: ["a.example"] });
+  expect(() => configure({ providerHosts: ["https://b.example"] })).toThrow(ReplayUsageError);
+  expect(getConfig().providerHosts).toContain("a.example");
+});
+
+test("config arrays are read-only", () => {
+  const config = getConfig();
+  // @ts-expect-error providerHosts is readonly
+  expect(() => config.providerHosts.push("x.example")).toThrow(TypeError);
+  // @ts-expect-error ignore is readonly
+  expect(() => config.ignore.push("body.x")).toThrow(TypeError);
 });
 
 test("configure replaces previous user values", () => {

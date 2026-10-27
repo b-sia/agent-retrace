@@ -45,6 +45,7 @@ src/
   index.ts              public exports; installs interceptor + http guard on import
   errors.ts             error classes
   runtime.ts            process-wide singleton on globalThis (ALS, config, active paths)
+  defaults.ts           DEFAULT_PROVIDER_HOSTS, defaultConfig() (leaf module, breaks the config/runtime cycle)
   config.ts             configure(), getConfig(), resolveMode(), isProviderHost()
   recording/format.ts   types, FORMAT_VERSION, stableStringify, serialize/parse
   recording/store.ts    name validation, path resolution, caller test file, load/save
@@ -133,7 +134,7 @@ Expected: all exit 0, `dist/index.js` and `dist/index.d.ts` exist.
 ### Task 2: Errors, runtime singleton and config
 
 **Files:**
-- Create: `src/errors.ts`, `src/runtime.ts`, `src/config.ts`
+- Create: `src/errors.ts`, `src/runtime.ts`, `src/config.ts`, `src/defaults.ts`
 - Test: `test/unit/config.test.ts`, `test/unit/runtime.test.ts`
 
 **Interfaces:**
@@ -148,10 +149,10 @@ Expected: all exit 0, `dist/index.js` and `dist/index.d.ts` exist.
 - Produces (`src/config.ts`):
   - `type Mode = "replay" | "auto" | "update"`
   - `type RedactRule = RegExp | ((value: string) => string)`
-  - `interface AgentRetraceConfig { providerHosts: string[]; ignore: string[]; redact: RedactRule[] }`
-  - `interface ConfigureOptions { providerHosts?: string[]; ignore?: string[]; redact?: RedactRule[] }`
+  - `interface AgentRetraceConfig { readonly providerHosts: readonly string[]; readonly ignore: readonly string[]; readonly redact: readonly RedactRule[] }` (frozen)
+  - `interface ConfigureOptions { providerHosts?: readonly string[]; ignore?: readonly string[]; redact?: readonly RedactRule[] }`
   - `const DEFAULT_PROVIDER_HOSTS = ["api.openai.com", "api.anthropic.com"]`
-  - `configure(opts: ConfigureOptions): void`: each call replaces the user-supplied values (idempotent when a setup file runs once per test file); defaults always stay.
+  - `configure(opts: ConfigureOptions): void`: each call replaces the user-supplied values (idempotent when a setup file runs once per test file); defaults always stay. Throws `ReplayUsageError` for a provider host that is not a bare `host` or `host:port`.
   - `getConfig(): Readonly<AgentRetraceConfig>` (providerHosts = defaults + user, lowercased, deduped)
   - `resetConfig(): void` (tests only, not exported from `index.ts`)
   - `resolveMode(env?: NodeJS.ProcessEnv): Mode`, throws `InvalidModeError`
@@ -195,7 +196,7 @@ test("runtime is shared across module copies", async () => {
 });
 ```
 
-A configured entry without a port matches that hostname on any port. An entry with a port matches only that `host:port`.
+A configured entry without a port matches that hostname on any port. An entry with a port matches only that `host:port`, including the scheme's default port (`host:443` matches `https://host/`). Entries are trimmed, lowercased and punycoded; a trailing dot is ignored on entries and request URLs.
 
 - [ ] **Step 2:** Run `npx vitest run test/unit/config.test.ts test/unit/runtime.test.ts`. Expected: FAIL (modules missing).
 - [ ] **Step 3:** Implement the three files per the Interfaces block.

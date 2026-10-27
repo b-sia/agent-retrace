@@ -34,12 +34,22 @@ started inside `als.run(value, fn)`. It plays the role of Python's `contextvars`
 `context.Context` you never have to pass by hand. One instance lives on the runtime object so every
 copy reads the same store.
 
-## Circular imports
+## Avoiding circular imports
 
-`config.ts` imports `runtime()` and `runtime.ts` imports `defaultConfig()`. ESM allows the cycle
-because both only call the other module's function later, inside function bodies, never while the
-modules are first evaluated. A top-level call across the cycle would hit a not-yet-initialized
-binding and throw, unlike Python where it would see a half-filled module.
+`config.ts` needs `runtime()`, and `runtime.ts` needs a default config to create the runtime. If
+each imported the other, ESM would allow it, but only as long as neither calls into the other while
+the modules are first evaluated: a top-level call across the cycle hits a not-yet-initialized
+binding and throws (Python would instead see a half-filled module). That holds today and breaks
+silently later. So the defaults live in `defaults.ts`, which imports nothing at runtime, and
+`runtime.ts` imports `config.ts` only with `import type`, which TypeScript erases from the output.
+
+## URL host and port quirks
+
+`new URL()` lowercases hostnames, converts IDN names to punycode, and drops the scheme's default
+port: `new URL("https://h:443/").port` is `""`. So a configured `"h:443"` is compared against the
+request's port with the default restored. Configured entries are parsed with a made-up scheme
+(`x://h:443`), because non-special schemes keep every port as written. A hostname may end in a
+dot (`api.openai.com.`), which DNS treats as the same host, so the dot is dropped on both sides.
 
 ## Error subclasses
 

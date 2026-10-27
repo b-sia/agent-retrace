@@ -11,7 +11,8 @@
  * each package once. Neither has this problem.)
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import { type AgentRetraceConfig, defaultConfig } from "./config.js";
+import type { AgentRetraceConfig } from "./config.js";
+import { defaultConfig } from "./defaults.js";
 
 /**
  * Shared state for the whole process.
