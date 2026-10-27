@@ -36,8 +36,8 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run --project unit",
-    "test:node": "npm run build && node --test test/node-test/",
-    "test:example": "npm run build && vitest run --project example",
+    "test:node": "npm run build && node --test \"test/node-test/**/*.test.mjs\"",
+    "test:example": "npm run build && vitest run --project example --passWithNoTests",
     "check:package": "npm run build && publint && attw --pack . --profile esm-only",
     "ci": "npm run lint && npm run typecheck && npm test && npm run test:node && npm run test:example && npm run check:package",
     "prepare": "lefthook install"
