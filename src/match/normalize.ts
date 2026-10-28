@@ -105,6 +105,8 @@ function escapeRegExp(s: string): string {
  *
  * All secrets are replaced in one pass, longest first, so a secret that
  * contains another is removed whole and replacement text is never rescanned.
+ * Two keys that differ only in their secrets become the same key, and the
+ * later one wins; losing that value is preferred over writing the secret.
  *
  * @param value - The value to scrub.
  * @param secrets - Literal secret strings.
@@ -191,7 +193,8 @@ function removePath(value: JsonValue, segments: readonly string[]): JsonValue {
 /**
  * Removes dot paths from a value, e.g. "metadata" or "messages.*.cache_control".
  * A `*` segment matches every key or array index at that level, and a numeric
- * segment selects one array element. A path that does not exist is a no-op.
+ * segment selects one array element. Removing an element shifts the ones after
+ * it down, as `Array.prototype.splice` would. A path that does not exist is a no-op.
  * Keys containing "." cannot be addressed.
  *
  * @param value - The value to clean.
