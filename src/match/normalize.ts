@@ -65,8 +65,11 @@ function ruleToFunction(rule: RedactRule): (s: string) => string {
   if (typeof rule === "function") return rule;
   // A copy with the g flag replaces every match. Copying also leaves the
   // user's regex alone: a g-flagged RegExp is stateful (`lastIndex`), unlike
-  // a compiled pattern in Python or Go.
-  const pattern = new RegExp(rule.source, rule.flags.includes("g") ? rule.flags : `${rule.flags}g`);
+  // a compiled pattern in Python or Go. The y (sticky) flag is dropped: with
+  // it, `replace` only matches at index 0 and right after a previous match,
+  // so text anywhere else would reach disk unredacted.
+  const flags = rule.flags.replace("y", "");
+  const pattern = new RegExp(rule.source, flags.includes("g") ? flags : `${flags}g`);
   return (s) => s.replace(pattern, REDACTED);
 }
 

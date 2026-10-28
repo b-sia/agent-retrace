@@ -34,6 +34,12 @@ such state. `redactDeep` copies each user pattern with `new RegExp(source, flags
 `String.prototype.replace` replaces every match rather than only the first, and the user's own
 object is never touched.
 
+The `y` (sticky) flag is removed from the copy. Sticky means a match must start exactly at
+`lastIndex`, like Python's `pattern.match(s, pos)` rather than `pattern.search(s)`. With `g` and `y`
+together, `replace` starts at index 0 and stops at the first position that does not match, so
+`"x 555-1234".replace(/\d{3}-\d{4}/gy, "...")` changes nothing. The other flags (`i`, `m`, `s`,
+`u`, `v`, `d`) change what matches, not where the search may start, so they are kept.
+
 Secrets are literal strings, so they are escaped before being joined into one alternation
 (`a|b|c`, longest first). One pass means `[REDACTED]` written for one secret is never rescanned for
 another.

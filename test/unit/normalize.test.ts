@@ -34,6 +34,12 @@ test("a g-flagged rule is reusable and left untouched", () => {
   expect(rule.lastIndex).toBe(0);
 });
 
+test("a sticky rule still redacts every match, anywhere in the string", () => {
+  const rule = /\d{3}-\d{4}/y;
+  expect(redactDeep("x 555-1234 and 555-9999", [rule])).toBe("x [REDACTED] and [REDACTED]");
+  expect(rule.flags).toBe("y");
+});
+
 test("function redaction", () =>
   expect(redactDeep("Alice", [(s) => s.toUpperCase()])).toBe("ALICE"));
 
