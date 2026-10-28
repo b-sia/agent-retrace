@@ -11,14 +11,17 @@ does not:
 - `NaN` and `Infinity` become `null`; `-0` becomes `0`.
 - An object with a `toJSON()` method is replaced by its result first. `Date` has one, so a date
   becomes its ISO string.
-- `Map` and `Set` have no enumerable own properties, so both become `{}`.
+- Only own enumerable properties are written. `Map`, `Set`, `Error`, `RegExp` and `Promise` keep
+  their data elsewhere (internal slots, or non-enumerable `message`/`stack`), so all become `{}`.
 - Only a `bigint` or a circular reference throws, with a message that does not say where.
 
 `toJsonArgs` follows the same rules, so tool arguments mean the same thing they would in a fetch
-body, with two changes: an error names the path (`args[1].items[0].n`), and `Map`/`Set` throw
-instead of turning into `{}`, which would let two different maps match. `AbortSignal` is dropped
-like a function, because the Vercel AI SDK passes one to every tool and it says nothing about what
-the tool was asked to do.
+body, with two changes: an error names the path (`args[1].items[0].n`), and an object JSON would
+write as `{}` throws instead, which would let two different maps or errors match. "Would write as
+`{}`" means: not a plain object (its prototype is not `Object.prototype` or `null`) and no own
+enumerable properties. `Map` and `Set` always throw, even with extra properties set on them.
+`AbortSignal` is dropped like a function, because the Vercel AI SDK passes one to every tool and it
+says nothing about what the tool was asked to do.
 
 ## Sparse arrays
 

@@ -255,6 +255,28 @@ test.each([
   expect(() => toJsonArgs([{ v: value }])).toThrow(ReplayUsageError),
 );
 
+test.each([
+  ["an Error", new Error("boom")],
+  ["a RegExp", /re/],
+  ["a Promise", Promise.resolve(1)],
+  ["a WeakMap", new WeakMap()],
+  ["a class instance without fields", new (class Empty {})()],
+])("toJsonArgs rejects %s, which JSON writes as {}", (_, value) =>
+  expect(() => toJsonArgs([{ v: value }])).toThrow(/args\[0\]\.v is a .*JSON writes as \{\}/),
+);
+
+test("toJsonArgs keeps empty plain objects and class instances with fields", () =>
+  expect(
+    toJsonArgs([
+      {},
+      Object.create(null),
+      new (class Point {
+        x = 1;
+        y = 2;
+      })(),
+    ]),
+  ).toEqual([{}, {}, { x: 1, y: 2 }]));
+
 test("toJsonValue names the given root in errors", () =>
   expect(() => toJsonValue({ n: 1n }, "return value")).toThrow(/return value\.n/));
 

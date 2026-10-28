@@ -256,6 +256,18 @@ function isDropped(value: unknown): boolean {
 }
 
 /**
+ * Reports whether an object is a plain object: made by `{}`, `Object.create(null)`
+ * or `JSON.parse`, possibly in another realm (vm context, worker).
+ *
+ * @param value - Any object.
+ * @returns True when its prototype is null or some realm's `Object.prototype`.
+ */
+function isPlainObject(value: object): boolean {
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === null || Object.getPrototypeOf(proto) === null;
+}
+
+/**
  * Converts one value to JSON, like `JSON.parse(JSON.stringify(value))` but
  * with errors that name the offending path.
  *
@@ -263,7 +275,8 @@ function isDropped(value: unknown): boolean {
  * @param path - Where the value sits, for error messages.
  * @param ancestors - Objects currently being converted, to detect cycles.
  * @returns The JSON value, or undefined when the value is dropped.
- * @throws {ReplayUsageError} On a bigint, a circular reference, a Map or a Set.
+ * @throws {ReplayUsageError} On a bigint, a circular reference, or an object
+ *   that JSON would write as {} (see `toJsonValue`).
  */
 function convert(value: unknown, path: string, ancestors: Set<object>): JsonValue | undefined {
   if (value !== null && typeof value === "object" && !(value instanceof AbortSignal)) {
@@ -280,10 +293,18 @@ function convert(value: unknown, path: string, ancestors: Set<object>): JsonValu
   // NaN and Infinity become null, and -0 becomes 0, as in JSON.
   if (typeof value === "number") return Number.isFinite(value) ? value + 0 : null;
   if (value === null || typeof value !== "object") return value as string | boolean | null;
-  if (value instanceof Map || value instanceof Set) {
-    // JSON.stringify writes {} for both, so different Maps would match.
+  // JSON.stringify writes {} for a Map, a Set, an Error, a Promise or any
+  // other object whose data is not in own enumerable properties, so two
+  // different ones would match. A Map or Set with extra properties set on it
+  // would still lose its entries, so those two are always rejected.
+  if (
+    value instanceof Map ||
+    value instanceof Set ||
+    (!Array.isArray(value) && !isPlainObject(value) && Object.keys(value).length === 0)
+  ) {
+    const name = Object.getPrototypeOf(value)?.constructor?.name || "object";
     throw new ReplayUsageError(
-      `${path} is a ${value.constructor.name}, which JSON writes as {}. Convert it to an array or plain object.`,
+      `${path} is a ${name}, which JSON writes as {}. Convert it to an array, a string or a plain object.`,
     );
   }
   if (ancestors.has(value)) {
@@ -314,8 +335,10 @@ function convert(value: unknown, path: string, ancestors: Set<object>): JsonValu
  * @param value - The value to convert.
  * @param path - Name of the value in error messages, e.g. "return value".
  * @returns The JSON value; a dropped value becomes null.
- * @throws {ReplayUsageError} On a bigint, a circular reference, a Map or a
- *   Set, naming the path to it.
+ * @throws {ReplayUsageError} On a bigint, a circular reference, a Map, a Set,
+ *   or any other non-plain object with no own enumerable properties (an Error,
+ *   a RegExp, a Promise, an empty class instance), which JSON would write as
+ *   {}. The message names the path to it.
  */
 export function toJsonValue(value: unknown, path: string): JsonValue {
   return convert(value, path, new Set()) ?? null;
@@ -328,8 +351,8 @@ export function toJsonValue(value: unknown, path: string): JsonValue {
  *
  * @param args - Arguments the tool was called with.
  * @returns One JSON value per argument.
- * @throws {ReplayUsageError} On a bigint, a circular reference, a Map or a
- *   Set, naming the path to it, e.g. "args[1].items[0].n".
+ * @throws {ReplayUsageError} On a value `toJsonValue` rejects, naming the
+ *   path to it, e.g. "args[1].items[0].n".
  */
 export function toJsonArgs(args: readonly unknown[]): JsonValue[] {
   return Array.from(args, (arg, i) => toJsonValue(arg, `args[${i}]`));
