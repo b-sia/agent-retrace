@@ -102,6 +102,13 @@ test("undefined properties are dropped like JSON.stringify", () => {
   expect(stableStringify({ a: undefined, b: 1 })).toBe(`{\n  "b": 1\n}\n`);
 });
 
+test("holes in sparse arrays are written as null like JSON.stringify", () => {
+  // biome-ignore lint/suspicious/noSparseArray: the hole is what is under test
+  const sparse = [1, , 3];
+  expect(stableStringify(sparse)).toBe(`${JSON.stringify(sparse, null, 2)}\n`);
+  expect(stableStringify(new Array(2))).toBe("[\n  null,\n  null\n]\n");
+});
+
 test("round trip", () => expect(parseRecording(serializeRecording(sample), "f")).toEqual(sample));
 
 test.each([
@@ -115,6 +122,33 @@ test.each([
   ['{"formatVersion":1,"name":"n","steps":{}}'],
   ['{"formatVersion":1,"steps":[]}'],
   ["[]"],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{},"text":5},"response":{"status":200,"headers":{},"body":{}}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"text":5}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{}}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"body":1,"text":"x"}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"text":"x","events":[]}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"events":[null]}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"events":[7]}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"events":[{"event":1}]}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"events":[{"text":1}]}}]}',
+  ],
 ])("rejects %s", (t) => expect(() => parseRecording(t, "f.json")).toThrow(RecordingFormatError));
 
 test("newer version message", () =>

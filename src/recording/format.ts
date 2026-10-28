@@ -142,7 +142,11 @@ function write(value: unknown, indent: string, ancestors: Set<object>): string {
   const inner = `${indent}  `;
   let out: string;
   if (Array.isArray(value)) {
-    const items = value.map((item) => (isSkipped(item) ? "null" : write(item, inner, ancestors)));
+    // `Array.from` visits holes in sparse arrays as undefined; `map` would skip
+    // them and leave a bare "," in the output.
+    const items = Array.from(value, (item) =>
+      isSkipped(item) ? "null" : write(item, inner, ancestors),
+    );
     out = items.length === 0 ? "[]" : `[\n${inner}${items.join(`,\n${inner}`)}\n${indent}]`;
   } else {
     const record = value as Record<string, unknown>;
@@ -205,6 +209,35 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 }
 
 /**
+ * Checks the shape of a response payload: exactly one of body/text/events,
+ * a string `text`, and events that are objects with string `event`/`text`.
+ *
+ * @param response - The parsed response object.
+ * @returns Why the payload is invalid, or undefined when it is valid.
+ */
+function responsePayloadProblem(response: Record<string, unknown>): string | undefined {
+  const present = ["body", "text", "events"].filter((key) => response[key] !== undefined);
+  if (present.length !== 1) {
+    return `has a response with ${present.length === 0 ? "none" : present.join(" and ")} of body, text and events, expected exactly one`;
+  }
+  if (response.text !== undefined && typeof response.text !== "string") {
+    return "has a response text that is not a string";
+  }
+  if (response.events === undefined) return undefined;
+  if (!Array.isArray(response.events)) return "has response events that are not an array";
+  for (const [i, event] of response.events.entries()) {
+    if (!isObject(event)) return `has response event ${i + 1} that is not an object`;
+    if (event.event !== undefined && typeof event.event !== "string") {
+      return `has response event ${i + 1} with an event name that is not a string`;
+    }
+    if (event.text !== undefined && typeof event.text !== "string") {
+      return `has response event ${i + 1} with a text that is not a string`;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Checks the shape of one step, enough that later code can index into it
  * without crashing on a hand-edited file.
  *
@@ -220,13 +253,13 @@ function stepProblem(step: unknown): string | undefined {
       return "has a request without a string method and url";
     }
     if (!isStringRecord(request.headers)) return "has request headers that are not all strings";
+    if (request.text !== undefined && typeof request.text !== "string") {
+      return "has a request text that is not a string";
+    }
     if (!isObject(response)) return "has no response object";
     if (!Number.isInteger(response.status)) return "has a response without an integer status";
     if (!isStringRecord(response.headers)) return "has response headers that are not all strings";
-    if (response.events !== undefined && !Array.isArray(response.events)) {
-      return "has response events that are not an array";
-    }
-    return undefined;
+    return responsePayloadProblem(response);
   }
   if (step.type === "tool") {
     const { outcome } = step;
