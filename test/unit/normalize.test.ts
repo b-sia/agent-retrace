@@ -112,8 +112,14 @@ test("secret headers are read case-insensitively, other headers are not secrets"
     "Basic dXNlcjpwYXNzd29yZA==",
     "dXNlcjpwYXNzd29yZA==",
     "session=abc123456789",
+    "abc123456789",
     "azure-1234567890",
   ]));
+
+test("each cookie value is a secret of its own", () =>
+  expect(
+    secretsFromHeaders({ cookie: "session=abcdefghij; theme=dark; flag; token= a=b=c " }),
+  ).toEqual(["session=abcdefghij; theme=dark; flag; token= a=b=c", "abcdefghij", "dark", "a=b=c"]));
 
 test("secretsFromHeaders skips empty values and dedupes", () =>
   expect(

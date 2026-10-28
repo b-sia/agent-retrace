@@ -121,7 +121,9 @@ export function scrubSecrets<T extends JsonValue>(value: T, secrets: readonly st
 /**
  * Collects the credentials found in request headers: the value of every
  * header in `SECRET_HEADERS` and, for `<scheme> <token>` values such as
- * "Bearer sk-...", the token on its own too. Header names match in any case.
+ * "Bearer sk-...", the token on its own too. For `cookie`, each cookie value
+ * is a secret of its own, since a session token can show up apart from its
+ * name. Header names match in any case.
  *
  * @param headers - Request headers as sent.
  * @returns The secrets, deduplicated, in header order.
@@ -135,6 +137,13 @@ export function secretsFromHeaders(headers: Record<string, string>): string[] {
     secrets.add(value);
     const token = /^[A-Za-z][\w-]*\s+(\S+)$/.exec(value)?.[1];
     if (token !== undefined) secrets.add(token);
+    if (name.toLowerCase() === "cookie") {
+      for (const pair of value.split(";")) {
+        const eq = pair.indexOf("=");
+        const cookie = eq === -1 ? "" : pair.slice(eq + 1).trim();
+        if (cookie !== "") secrets.add(cookie);
+      }
+    }
   }
   return [...secrets];
 }
