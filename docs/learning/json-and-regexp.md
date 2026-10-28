@@ -11,6 +11,7 @@ does not:
 - `NaN` and `Infinity` become `null`; `-0` becomes `0`.
 - An object with a `toJSON()` method is replaced by its result first. `Date` has one, so a date
   becomes its ISO string.
+- `new String("a")`, `new Number(1)` and `new Boolean(true)` are unwrapped to their primitives.
 - Only own enumerable properties are written. `Map`, `Set`, `Error`, `RegExp` and `Promise` keep
   their data elsewhere (internal slots, or non-enumerable `message`/`stack`), so all become `{}`.
 - Only a `bigint` or a circular reference throws, with a message that does not say where.

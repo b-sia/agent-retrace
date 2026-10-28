@@ -284,6 +284,10 @@ function convert(value: unknown, path: string, ancestors: Set<object>): JsonValu
     // Date defines toJSON, which returns its ISO string.
     if (typeof toJSON === "function") value = toJSON.call(value);
   }
+  // Boxed primitives (`new String("a")`) are unwrapped, as JSON.stringify does.
+  if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+    value = value.valueOf();
+  }
   if (isDropped(value)) return undefined;
   if (typeof value === "bigint") {
     throw new ReplayUsageError(
@@ -329,8 +333,9 @@ function convert(value: unknown, path: string, ancestors: Set<object>): JsonValu
 
 /**
  * Converts a value to JSON with `JSON.stringify` semantics: `toJSON` is
- * honored (a Date becomes its ISO string), and undefined, functions, symbols
- * and `AbortSignal`s are dropped. Used for tool return values.
+ * honored (a Date becomes its ISO string), boxed primitives are unwrapped,
+ * and undefined, functions, symbols and `AbortSignal`s are dropped. Used for
+ * tool return values.
  *
  * @param value - The value to convert.
  * @param path - Name of the value in error messages, e.g. "return value".

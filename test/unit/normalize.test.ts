@@ -277,6 +277,11 @@ test("toJsonArgs keeps empty plain objects and class instances with fields", () 
     ]),
   ).toEqual([{}, {}, { x: 1, y: 2 }]));
 
+test("toJsonArgs unwraps boxed primitives like JSON.stringify", () =>
+  expect(
+    toJsonArgs([new String("ab"), new Number(3), new Boolean(false), new Number(Number.NaN)]),
+  ).toEqual(["ab", 3, false, null]));
+
 test("toJsonValue names the given root in errors", () =>
   expect(() => toJsonValue({ n: 1n }, "return value")).toThrow(/return value\.n/));
 
