@@ -314,3 +314,70 @@ test("color is applied only when asked", () => {
   expect(renderChange(r, { color: true, cwd: CWD })).toContain("\x1b[");
   expect(renderChange(r, { color: false, cwd: CWD })).not.toContain("\x1b[");
 });
+
+test("unknown APIs show the body diff alongside a model change", () => {
+  const req = (model: string, prompt: string): RecordedRequest => ({
+    method: "POST",
+    url: "https://gw.example.com/v1/generate",
+    headers: {},
+    body: { model, prompt },
+  });
+  const out = render(report(req("a", "hello"), req("b", "bye")));
+  expect(out).toContain("Model: a -> b\n");
+  expect(out).toContain("Request body:\n");
+  expect(out).toContain('-   "prompt": "hello"\n');
+  expect(out).toContain('+   "prompt": "bye"\n');
+});
+
+test("an API change shows the body diff alongside the endpoint", () => {
+  const out = render(report(openaiChat(), openaiResponses()));
+  expect(out).toContain(
+    "Endpoint: POST api.openai.com/v1/chat/completions -> POST api.openai.com/v1/responses\n",
+  );
+  expect(out).toContain("Request body:\n");
+  expect(out).toContain('+   "instructions": "You are a support agent.",\n');
+});
+
+test("a param change does not hide a change the semantic view cannot see", () => {
+  const image = (url: string, user: string): RecordedRequest => ({
+    method: "POST",
+    url: "https://api.openai.com/v1/chat/completions",
+    headers: {},
+    body: {
+      user,
+      messages: [{ role: "user", content: [{ type: "image_url", image_url: { url } }] }],
+    },
+  });
+  const out = render(report(image("a.png", "u1"), image("b.png", "u2")));
+  expect(out).toContain('Params:\n~ user: "u1" -> "u2"\n');
+  expect(out).toContain('-             "url": "a.png"\n+             "url": "b.png"');
+  // Params are shown in full above, so the raw diff leaves them out.
+  expect(out).not.toContain('"user": "u1"');
+});
+
+test("ignored paths are left out of the report", () => {
+  const out = render({
+    ...report(
+      openaiChat({ params: { temperature: 0, metadata: { t: 1 } } }),
+      openaiChat({ params: { temperature: 0.7, metadata: { t: 2 } } }),
+    ),
+    ignore: ["metadata"],
+  });
+  expect(out).toContain("Params:\n~ temperature: 0 -> 0.7\n\n");
+  expect(out).not.toContain("metadata");
+});
+
+test("a system prompt added from none shows only the added lines", () =>
+  expect(
+    render(report(openaiChat({ system: "" }), openaiChat({ system: "Be nice.\nBe brief." }))),
+  ).toContain("System prompt:\n+ Be nice.\n+ Be brief.\n\n"));
+
+test("a one-step recording reads in the singular", () =>
+  expect(render({ ...report(undefined, tool("search"), "extra"), totalSteps: 1 })).toContain(
+    "step 2 is new (recording has 1 step): tool `search`",
+  ));
+
+test("a directory whose name starts with two dots is still inside cwd", () =>
+  expect(
+    render({ ...report(tool("a"), tool("b")), recordingPath: join(CWD, "..cache/r.json") }),
+  ).toContain("Recording: ..cache/r.json\n"));

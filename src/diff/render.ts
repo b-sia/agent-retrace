@@ -7,6 +7,7 @@
 import { isAbsolute, relative, sep } from "node:path";
 import { diffArrays } from "diff";
 import pc from "picocolors";
+import { removeIgnoredPaths } from "../match/normalize.js";
 import type { JsonValue, RecordedRequest, Step } from "../recording/format.js";
 import { stableStringify } from "../recording/format.js";
 import { toSemantic } from "./semantic.js";
@@ -28,6 +29,8 @@ export interface ChangeReport {
   live?: Step;
   /** Shell command that re-records from this step. */
   command: string;
+  /** Body paths the match ignores (`config.ignore`); they are left out of the diff too. */
+  ignore?: readonly string[];
 }
 
 /** Options for {@link renderChange}. */
@@ -79,7 +82,9 @@ function compact(value: JsonValue | undefined): string {
  */
 function lineDiff(a: string, b: string, c: Colors, indent = ""): string[] {
   const out: string[] = [];
-  const changes = diffArrays(a.split("\n"), b.split("\n"));
+  // An empty text has no lines, not one empty line.
+  const lines = (text: string) => (text === "" ? [] : text.split("\n"));
+  const changes = diffArrays(lines(a), lines(b));
   changes.forEach((change, i) => {
     if (change.added || change.removed) {
       const mark = change.added ? c.green : c.red;
@@ -216,38 +221,81 @@ function section(title: string, lines: string[], c: Colors): string[][] {
 }
 
 /**
- * Sections for two LLM requests: what changed in meaning, or a raw body diff
- * when the meaningful parts are equal but the requests are not (an unknown
- * API, or a change inside content the semantic view summarizes).
+ * Returns a request without the body paths the match ignores.
+ *
+ * @param req - The request.
+ * @param ignore - Ignored body paths.
+ * @returns The request as the match sees it.
+ */
+function withoutIgnored(req: RecordedRequest, ignore: readonly string[]): RecordedRequest {
+  return req.body === undefined ? req : { ...req, body: removeIgnoredPaths(req.body, ignore) };
+}
+
+/**
+ * Returns a request body without the given top-level fields.
+ *
+ * @param body - The body.
+ * @param keys - Fields to drop.
+ * @returns The remaining body.
+ */
+function omitFields(body: JsonValue, keys: Iterable<string>): JsonValue {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return body;
+  const rest = { ...body };
+  for (const key of keys) delete rest[key];
+  return rest;
+}
+
+/**
+ * Sections for two LLM requests: what changed in meaning, plus a raw body
+ * diff for whatever the semantic view cannot show. That is the whole body for
+ * an unknown API or a change of API, and otherwise the content fields
+ * (system, messages, tools) when their semantic view is equal but the raw
+ * fields are not, e.g. a changed image URL. Model and params are shown in
+ * full by their own sections, so they are left out of that raw diff.
  *
  * @param a - The recorded request.
  * @param b - The live request.
+ * @param ignore - Body paths the match ignores.
  * @param c - Colors.
  * @returns The sections.
  */
-function llmSections(a: RecordedRequest, b: RecordedRequest, c: Colors): string[][] {
-  const sa = toSemantic(a);
-  const sb = toSemantic(b);
+function llmSections(
+  a: RecordedRequest,
+  b: RecordedRequest,
+  ignore: readonly string[],
+  c: Colors,
+): string[][] {
+  const [ra, rb] = [withoutIgnored(a, ignore), withoutIgnored(b, ignore)];
+  const sa = toSemantic(ra);
+  const sb = toSemantic(rb);
   const sections: string[][] = [];
   if (sa.endpoint !== sb.endpoint) {
     sections.push([c.yellow(`Endpoint: ${sa.endpoint} -> ${sb.endpoint}`)]);
   }
-  sections.push(...section("Headers", entriesDiff(a.headers, b.headers, c, String), c));
+  sections.push(...section("Headers", entriesDiff(ra.headers, rb.headers, c, String), c));
   if (sa.model !== sb.model) {
     sections.push([c.yellow(`Model: ${sa.model ?? "(none)"} -> ${sb.model ?? "(none)"}`)]);
   }
+  let payloadA: JsonValue = ra.text ?? ra.body ?? null;
+  let payloadB: JsonValue = rb.text ?? rb.body ?? null;
   if (sa.api !== "unknown" && sa.api === sb.api) {
     const system = sa.system === sb.system ? [] : lineDiff(sa.system, sb.system, c);
     const messages = sameJson(sa.messages, sb.messages)
       ? []
       : messagesDiff(sa.messages, sb.messages, c);
-    sections.push(...section("System prompt", system, c), ...section("Messages", messages, c));
-    sections.push(...section("Tools", toolsDiff(sa.tools, sb.tools, c), c));
-    sections.push(...section("Params", entriesDiff(sa.params, sb.params, c), c));
+    const content = [
+      ...section("System prompt", system, c),
+      ...section("Messages", messages, c),
+      ...section("Tools", toolsDiff(sa.tools, sb.tools, c), c),
+    ];
+    sections.push(...content, ...section("Params", entriesDiff(sa.params, sb.params, c), c));
+    if (content.length > 0) return sections;
+    const shown = ["model", ...Object.keys(sa.params), ...Object.keys(sb.params)];
+    payloadA = omitFields(payloadA, shown);
+    payloadB = omitFields(payloadB, shown);
   }
-  const payload = (r: RecordedRequest) => json(r.text ?? r.body ?? null);
-  if (sections.length === 0 && payload(a) !== payload(b)) {
-    sections.push(...section("Request body", lineDiff(payload(a), payload(b), c), c));
+  if (!sameJson(payloadA, payloadB)) {
+    sections.push(...section("Request body", lineDiff(json(payloadA), json(payloadB), c), c));
   }
   return sections;
 }
@@ -257,11 +305,12 @@ function llmSections(a: RecordedRequest, b: RecordedRequest, c: Colors): string[
  *
  * @param a - The recorded step.
  * @param b - The live step.
+ * @param ignore - Body paths the match ignores.
  * @param c - Colors.
  * @returns The sections.
  */
-function changeSections(a: Step, b: Step, c: Colors): string[][] {
-  if (a.type === "llm" && b.type === "llm") return llmSections(a.request, b.request, c);
+function changeSections(a: Step, b: Step, ignore: readonly string[], c: Colors): string[][] {
+  if (a.type === "llm" && b.type === "llm") return llmSections(a.request, b.request, ignore, c);
   if (a.type === "tool" && b.type === "tool") {
     const sections: string[][] = [];
     if (a.name !== b.name) sections.push([c.yellow(`Tool: ${a.name} -> ${b.name}`)]);
@@ -283,7 +332,7 @@ function changeSections(a: Step, b: Step, c: Colors): string[][] {
  */
 function displayPath(path: string, cwd: string): string {
   const rel = relative(cwd, path);
-  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return path;
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return path;
   return rel.split(sep).join("/");
 }
 
@@ -301,12 +350,12 @@ export function renderChange(report: ChangeReport, opts: RenderOptions = {}): st
   let sections: string[][] = [];
   if (report.kind === "extra" || recorded === undefined) {
     const what = live ? describeStep(live) : "unknown step";
-    header = `Your agent made more calls than recorded: step ${n} is new (recording has ${total} steps): ${what}`;
+    header = `Your agent made more calls than recorded: step ${n} is new (recording has ${total} ${total === 1 ? "step" : "steps"}): ${what}`;
   } else if (report.kind === "missing" || live === undefined) {
     header = `Your agent made fewer calls than recorded: step ${n} of ${total} was never made: ${describeStep(recorded)}`;
   } else {
     header = `Your agent changed at step ${n} of ${total}: ${describeStep(recorded)}`;
-    sections = changeSections(recorded, live, c);
+    sections = changeSections(recorded, live, report.ignore ?? [], c);
   }
   const blocks = [
     [`agent-retrace: recording "${report.recordingName}" no longer matches.`, c.bold(header)],
