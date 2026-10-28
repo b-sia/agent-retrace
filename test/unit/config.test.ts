@@ -101,7 +101,7 @@ test("config arrays are read-only", () => {
   // @ts-expect-error providerHosts is readonly
   expect(() => config.providerHosts.push("x.example")).toThrow(TypeError);
   // @ts-expect-error ignore is readonly
-  expect(() => config.ignore.push("body.x")).toThrow(TypeError);
+  expect(() => config.ignore.push("x")).toThrow(TypeError);
 });
 
 test("configure replaces previous user values", () => {
@@ -117,8 +117,8 @@ test("provider hosts are lowercased and deduped", () => {
 
 test("configure sets ignore and redact, and resetConfig clears them", () => {
   const rule = /sk-[a-z]+/g;
-  configure({ ignore: ["body.metadata"], redact: [rule] });
-  expect(getConfig().ignore).toEqual(["body.metadata"]);
+  configure({ ignore: ["metadata"], redact: [rule] });
+  expect(getConfig().ignore).toEqual(["metadata"]);
   expect(getConfig().redact).toEqual([rule]);
   resetConfig();
   expect(getConfig()).toEqual({

@@ -22,7 +22,7 @@ export type RedactRule = RegExp | ((value: string) => string);
 export interface AgentRetraceConfig {
   /** Hosts whose calls are recorded and replayed: `host` or `host:port`, lowercase. */
   readonly providerHosts: readonly string[];
-  /** Request paths ignored when matching, e.g. `body.metadata`. */
+  /** Request body paths ignored when matching, e.g. `metadata` or `messages.*.cache_control`. */
   readonly ignore: readonly string[];
   /** Extra redaction rules applied before anything is written to disk. */
   readonly redact: readonly RedactRule[];
@@ -32,7 +32,7 @@ export interface AgentRetraceConfig {
 export interface ConfigureOptions {
   /** Extra provider hosts, added to the defaults: `host` or `host:port`. */
   providerHosts?: readonly string[];
-  /** Request paths ignored when matching. */
+  /** Request body paths ignored when matching, e.g. `metadata` or `messages.*.cache_control`. */
   ignore?: readonly string[];
   /** Extra redaction rules. */
   redact?: readonly RedactRule[];
