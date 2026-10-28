@@ -211,3 +211,42 @@ test.each([
 ] as [string, RecordedRequest][])("does not throw on %s", (_, req) => {
   expect(() => toSemantic(req)).not.toThrow();
 });
+
+test.each([
+  [
+    "openai-chat",
+    post("https://api.openai.com/v1/chat/completions", {
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [{ function: { name: "f", arguments: '{"b":1,"a":{"d":2,"c":3}}' } }],
+        },
+      ],
+    }),
+  ],
+  [
+    "anthropic-messages",
+    post("https://api.anthropic.com/v1/messages", {
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", name: "f", input: { b: 1, a: { d: 2, c: 3 } } }],
+        },
+      ],
+    }),
+  ],
+])("%s: tool call arguments are shown with sorted keys", (_api, req) =>
+  expect(toSemantic(req).messages).toEqual(['assistant -> tool_call f({"a":{"c":3,"d":2},"b":1})']),
+);
+
+test("anthropic: system blocks are joined with newlines", () =>
+  expect(
+    toSemantic(
+      post("https://api.anthropic.com/v1/messages", {
+        system: [
+          { type: "text", text: "Line A" },
+          { type: "text", text: "Line B", cache_control: { type: "ephemeral" } },
+        ],
+      }),
+    ).system,
+  ).toBe("Line A\nLine B"));

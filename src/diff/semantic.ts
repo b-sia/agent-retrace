@@ -76,9 +76,10 @@ function oneLine(text: string): string {
  * (images, files, audio) so its position stays visible.
  *
  * @param content - A message's content.
+ * @param separator - Joins the parts.
  * @returns The text.
  */
-function contentText(content: JsonValue | undefined): string {
+function contentText(content: JsonValue | undefined, separator = " "): string {
   if (typeof content === "string") return content;
   return asArray(content)
     .map((part) => {
@@ -88,21 +89,35 @@ function contentText(content: JsonValue | undefined): string {
       return text ?? `[${asString(part.type) ?? "part"}]`;
     })
     .filter((s) => s !== "")
-    .join(" ");
+    .join(separator);
 }
 
 /**
- * Renders tool call arguments compactly. Arguments that are a JSON string
- * (OpenAI) are parsed and re-written without whitespace; anything that does
- * not parse is shown as sent.
+ * Copies a JSON value with every object's keys sorted by code unit, so two
+ * values that differ only in key order are written identically.
+ *
+ * @param value - Any JSON value.
+ * @returns The sorted copy.
+ */
+function sortKeys(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (!isObject(value)) return value;
+  const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return Object.fromEntries(entries.map(([k, v]) => [k, sortKeys(v)]));
+}
+
+/**
+ * Renders tool call arguments compactly, with sorted keys. Arguments that are
+ * a JSON string (OpenAI) are parsed and re-written without whitespace;
+ * anything that does not parse is shown as sent.
  *
  * @param args - The arguments, as a JSON string or a JSON value.
  * @returns The compact text.
  */
 function compactArgs(args: JsonValue | undefined): string {
-  if (typeof args !== "string") return JSON.stringify(args ?? {});
+  if (typeof args !== "string") return JSON.stringify(sortKeys(args ?? {}));
   try {
-    return JSON.stringify(JSON.parse(args));
+    return JSON.stringify(sortKeys(JSON.parse(args)));
   } catch {
     return args;
   }
@@ -263,7 +278,9 @@ function anthropicMessages(
     const name = asString(t.name) ?? asString(t.type);
     if (name !== undefined) tools.set(name, t.input_schema ?? t);
   }
-  return { system: contentText(body.system), messages, tools };
+  // Each system block is its own paragraph, as separate system messages are
+  // for OpenAI, so the prompt is diffed line by line.
+  return { system: contentText(body.system, "\n"), messages, tools };
 }
 
 /**
