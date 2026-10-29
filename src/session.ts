@@ -163,7 +163,13 @@ export class Session {
     }
     if (strategy === "update") {
       if (fnError) throw fnError.error;
-      if (this.switched || this.consumed.size < this.steps.length) {
+      // A missing file counts as a change, so an agent that made no calls
+      // still gets an (empty) recording, as in `record`.
+      const changed =
+        this.opts.recording === undefined ||
+        this.switched ||
+        this.consumed.size < this.steps.length;
+      if (changed) {
         const kept = [...this.consumed].sort((a, b) => a - b).map((i) => this.steps[i] as Step);
         await this.opts.save(this.recordingOf([...kept, ...this.liveSteps()]));
       }

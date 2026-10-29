@@ -312,6 +312,13 @@ test("update with fewer calls truncates", async () => {
   expect(save.mock.calls[0]?.[0].steps).toEqual([llm("a"), llm("b")]);
 });
 
+test("update without a recording writes one even when no calls were made", async () => {
+  const { s, save } = session("update");
+  await s.finish(undefined);
+  expect(save).toHaveBeenCalledTimes(1);
+  expect(save.mock.calls[0]?.[0]).toEqual(rec());
+});
+
 test("update with an extra call appends it", async () => {
   const { s, save } = session("update", rec(llm("a")));
   s.decideLlm(llm("a").request);
