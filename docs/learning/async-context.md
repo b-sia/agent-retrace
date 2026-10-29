@@ -5,8 +5,8 @@ Node concepts used by `src/session.ts` and `src/runtime.ts`.
 ## The problem: which test is this request from?
 
 An HTTP interceptor sits below the SDK. When a request arrives it must know which `replay()` call,
-and so which recording, it belongs to. The SDK does not pass that along, and tests may run
-side by side (`test.concurrent`, or several files in one worker).
+and so which recording, it belongs to. The SDK does not pass that along, and tests in one file may
+run side by side (`test.concurrent`).
 
 A global `currentSession` variable breaks as soon as two tests overlap:
 
