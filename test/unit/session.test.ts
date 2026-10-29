@@ -193,6 +193,30 @@ test("mismatch wins over fn error and keeps it as cause", async () => {
   expect((err as ChangeDetectedError).cause).toBe(e);
 });
 
+test("strict finish throws the same error the failed decision returned", async () => {
+  const { s } = session("strict", rec(llm("a")));
+  const d = s.decideLlm(llm("A!").request);
+  if (d.kind !== "fail") throw new Error("expected fail");
+  await expect(s.finish(undefined)).rejects.toBe(d.error);
+});
+
+test("a fail error rethrown by the function is not wrapped in itself", async () => {
+  const { s } = session("strict", rec(llm("a")));
+  const d = s.decideLlm(llm("A!").request);
+  if (d.kind !== "fail") throw new Error("expected fail");
+  await expect(s.finish({ error: d.error })).rejects.toBe(d.error);
+});
+
+test("a fail error wrapped by the SDK is thrown unwrapped", async () => {
+  const { s } = session("strict", rec(llm("a")));
+  const d = s.decideLlm(llm("A!").request);
+  if (d.kind !== "fail") throw new Error("expected fail");
+  const wrapped = new Error("Connection error.", {
+    cause: new Error("fetch failed", { cause: d.error }),
+  });
+  await expect(s.finish({ error: wrapped })).rejects.toBe(d.error);
+});
+
 test("fn error rethrown when no mismatch", async () => {
   const { s } = session("strict", rec(llm("a")));
   s.decideLlm(llm("a").request);

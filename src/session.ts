@@ -56,6 +56,12 @@ interface LiveEntry {
   step: Step;
 }
 
+/** The first change in strict mode, and the error the failed decision returned. */
+interface Mismatch {
+  report: ChangeReport;
+  error: ChangeDetectedError;
+}
+
 /**
  * Tracks one `replay()` call.
  *
@@ -74,7 +80,7 @@ export class Session {
   private readonly live: LiveEntry[] = [];
   private seq = 0;
   private extraCount = 0;
-  private firstMismatch: ChangeReport | undefined;
+  private firstMismatch: Mismatch | undefined;
   private switched = false;
   private isClosed = false;
 
@@ -155,7 +161,12 @@ export class Session {
       return;
     }
     if (this.firstMismatch) {
-      throw this.errorOf(this.firstMismatch, fnError ? { cause: fnError.error } : undefined);
+      const { report, error } = this.firstMismatch;
+      // The failed decision's error usually comes back out of the agent,
+      // directly or wrapped by the SDK. Wrapping it again would print the
+      // report twice.
+      if (!fnError || causeChainIncludes(fnError.error, error)) throw error;
+      throw this.errorOf(report, { cause: fnError.error });
     }
     if (fnError) throw fnError.error;
     const next = this.earliestUnconsumed(() => true);
@@ -189,8 +200,9 @@ export class Session {
       return this.goLive<S>(seq);
     }
     const report = this.mismatchReport(live);
-    this.firstMismatch ??= report;
-    return { kind: "fail", error: this.errorOf(report) };
+    const error = this.errorOf(report);
+    this.firstMismatch ??= { report, error };
+    return { kind: "fail", error };
   }
 
   /**
@@ -321,4 +333,23 @@ export class Session {
   private recordingOf(steps: Step[]): Recording {
     return { formatVersion: 1, name: this.opts.name, steps };
   }
+}
+
+/**
+ * Whether `target` is `error` itself or anywhere in its `cause` chain.
+ *
+ * @param error - The error to search, e.g. what the agent threw.
+ * @param target - The error to look for.
+ * @returns True when found.
+ */
+function causeChainIncludes(error: unknown, target: unknown): boolean {
+  // `seen` guards against a cause chain that loops back on itself.
+  const seen = new Set<unknown>();
+  let current = error;
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    if (current === target) return true;
+    seen.add(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
