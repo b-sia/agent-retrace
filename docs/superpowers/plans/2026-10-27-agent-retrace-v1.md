@@ -76,14 +76,14 @@ docs/learning/*.md, docs/demo/demo.tape, docs/demo/demo.gif
 **Interfaces:**
 - Produces: npm scripts used by every later task: `build`, `typecheck`, `lint`, `format`, `test`, `test:node`, `test:example`, `check:package`, `ci`.
 
-- [ ] **Step 1: Initialize git**
+- [x] **Step 1: Initialize git**
 
 ```bash
 git init -b main && git add docs && git commit -m "docs: add v1 design spec and implementation plan"
 git switch -c feat/agent-retrace-v1
 ```
 
-- [ ] **Step 2: Write `package.json`**
+- [x] **Step 2: Write `package.json`**
 
 Fields: `name: "agent-retrace"`, `version: "0.1.0"`, `type: "module"`, `license: "MIT"`, `engines: {"node": ">=22"}`, `exports: {".": {"types": "./dist/index.d.ts", "import": "./dist/index.js"}}`, `bin: {"agent-retrace": "./dist/cli.js"}`, `files: ["dist"]`, `repository` pointing at `github.com/b-sia/agent-retrace`, `keywords` (llm, agent, testing, record, replay, vcr, openai, anthropic). Scripts:
 
@@ -102,7 +102,7 @@ Fields: `name: "agent-retrace"`, `version: "0.1.0"`, `type: "module"`, `license:
 
 Install exact current majors: runtime `undici@^7 diff@^9 picocolors@^1`; dev `typescript@^7 vitest@^5 @biomejs/biome@^2 lefthook@^2 @types/node@^22 publint @arethetypeswrong/cli openai@^7 @anthropic-ai/sdk@^1 ai@^7 @ai-sdk/openai@^4 @ai-sdk/anthropic@^4`. Use `undici@^7`, not 8: undici 8 requires Node >=22.19, which would break `engines >=22`.
 
-- [ ] **Step 3: Write configs**
+- [x] **Step 3: Write configs**
 
 - `tsconfig.json`: `module`/`moduleResolution` `nodenext`, `target` `es2023`, `strict`, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`, `skipLibCheck`, includes `src`, `test`, `examples`, `vitest.config.ts`.
 - `tsconfig.build.json`: extends it, `include: ["src"]`, `outDir: "dist"`, `rootDir: "src"`, `declaration`, `sourceMap`, `declarationMap`.
@@ -112,22 +112,22 @@ Install exact current majors: runtime `undici@^7 diff@^9 picocolors@^1`; dev `ty
 - `.gitignore`: `node_modules`, `dist`, `*.tgz`, `coverage`.
 - `LICENSE`: MIT, year 2026, "b-sia".
 
-- [ ] **Step 4: Write `.github/workflows/ci.yml`**
+- [x] **Step 4: Write `.github/workflows/ci.yml`**
 
 Job `test` on `push` and `pull_request`, matrix `node: [22, 24, 26]`, `actions/setup-node` with npm cache, then `npm ci`, `npx biome ci .`, `npm run typecheck`, `npm test`, `npm run test:node`, `npm run check:package`. No API key secrets are exposed to any job. Task 12 adds the offline example job.
 
-- [ ] **Step 5: Smoke test**
+- [x] **Step 5: Smoke test**
 
 `test/unit/smoke.test.ts`: `import * as lib from "../../src/index.js"; expect(typeof lib).toBe("object")`. `src/index.ts`: `export {};` with a file-level JSDoc.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `npm run lint && npm run typecheck && npm test && npm run build`
 Expected: all exit 0, `dist/index.js` and `dist/index.d.ts` exist.
 
-- [ ] **Step 7: Learning note** `docs/learning/esm-and-packaging.md`: ESM vs CommonJS, `"type": "module"`, the `exports` map, why imports in TS source end in `.js`, `bin` and shebangs, `engines`. Compare with Python packaging / Go modules. Keep it under 80 lines.
+- [x] **Step 7: Learning note** `docs/learning/esm-and-packaging.md`: ESM vs CommonJS, `"type": "module"`, the `exports` map, why imports in TS source end in `.js`, `bin` and shebangs, `engines`. Compare with Python packaging / Go modules. Keep it under 80 lines.
 
-- [ ] **Step 8: Commit** `chore: scaffold TypeScript ESM package with Biome, Vitest and CI`
+- [x] **Step 8: Commit** `chore: scaffold TypeScript ESM package with Biome, Vitest and CI`
 
 ---
 
@@ -161,7 +161,7 @@ Expected: all exit 0, `dist/index.js` and `dist/index.d.ts` exist.
   - `interface Runtime { als: AsyncLocalStorage<Session>; config: AgentRetraceConfig; activePaths: Set<string>; installed: { dispatcher?: object; httpGuard?: boolean } }` (`Session` is a type-only import from Task 6; until then type it as `unknown` and tighten in Task 6)
   - `runtime(): Runtime` that lazily creates and returns `globalThis[Symbol.for("agent-retrace.runtime.v1")]`. The config in `config.ts` lives in this object, not in module scope.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ts
 // test/unit/config.test.ts
@@ -198,10 +198,10 @@ test("runtime is shared across module copies", async () => {
 
 A configured entry without a port matches that hostname on any port. An entry with a port matches only that `host:port`, including the scheme's default port (`host:443` matches `https://host/`). Entries are trimmed, lowercased and punycoded; a trailing dot is ignored on entries and request URLs.
 
-- [ ] **Step 2:** Run `npx vitest run test/unit/config.test.ts test/unit/runtime.test.ts`. Expected: FAIL (modules missing).
-- [ ] **Step 3:** Implement the three files per the Interfaces block.
-- [ ] **Step 4:** Re-run. Expected: PASS.
-- [ ] **Step 5: Commit** `feat: add error types, mode resolution and provider host config`
+- [x] **Step 2:** Run `npx vitest run test/unit/config.test.ts test/unit/runtime.test.ts`. Expected: FAIL (modules missing).
+- [x] **Step 3:** Implement the three files per the Interfaces block.
+- [x] **Step 4:** Re-run. Expected: PASS.
+- [x] **Step 5: Commit** `feat: add error types, mode resolution and provider host config`
 
 ---
 
@@ -246,7 +246,7 @@ Decisions:
 - `saveRecording`: `mkdir -p`, write to `<path>.<pid>.<random>.tmp`, then `rename` (atomic on POSIX, so an interrupted run never leaves half a file).
 - `callerTestFile`: temporarily set `Error.prepareStackTrace` to return V8 `CallSite[]`, capture, and restore in `finally`. Return the first frame whose `getFileName()` is not under this package's own `src`/`dist` directory (derive it from `import.meta.url`), not `node:`-prefixed and not under `node_modules`. Strip the `file://` scheme (`fileURLToPath`) and any `?query`. `getCallSites` from `node:util` cannot be used because it needs Node 22.9+.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ts
 // format.test.ts
@@ -288,11 +288,11 @@ test("save leaves no tmp files", async () => { await saveRecording(p, sample); e
 test("name mismatch in file is an error", async () => { await saveRecording(p, { ...sample, name: "Other" }); await expect(loadRecording(p, sample.name)).rejects.toThrow(RecordingFormatError); });
 ```
 
-- [ ] **Step 2:** Run `npx vitest run test/unit/format.test.ts test/unit/store.test.ts`. Expected: FAIL.
-- [ ] **Step 3:** Implement both files.
-- [ ] **Step 4:** Re-run. Expected: PASS.
-- [ ] **Step 5: Learning note** `docs/learning/fs-and-stack-traces.md`: `fs/promises`, atomic rename, `import.meta.url` vs `__dirname`, V8 CallSite API.
-- [ ] **Step 6: Commit** `feat: add recording format and file store`
+- [x] **Step 2:** Run `npx vitest run test/unit/format.test.ts test/unit/store.test.ts`. Expected: FAIL.
+- [x] **Step 3:** Implement both files.
+- [x] **Step 4:** Re-run. Expected: PASS.
+- [x] **Step 5: Learning note** `docs/learning/fs-and-stack-traces.md`: `fs/promises`, atomic rename, `import.meta.url` vs `__dirname`, V8 CallSite API.
+- [x] **Step 6: Commit** `feat: add recording format and file store`
 
 ---
 
@@ -325,7 +325,7 @@ Decisions:
 - `llmMatchKey` is `stableStringify` of `{ method, url, headers, body | text }`, after `removeIgnoredPaths(body, config.ignore)`. Request bodies are already redacted at capture time (Task 7), so a live request and its recording are compared after the same redaction. The URL keeps its query string, because Azure `api-version` is meaningful.
 - `toJsonArgs` drops functions, symbols and `AbortSignal` instances (object properties are omitted, array slots become `null`), and turns `Date` into an ISO string (via `JSON.stringify` replacer semantics). It throws `ReplayUsageError` naming the offending path for a `bigint` or a circular reference. Why: the Vercel AI SDK passes `{ abortSignal, messages, toolCallId }` as the second argument to `execute`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 ```ts
 test("regex redaction everywhere", () => expect(redactDeep({ a: ["call 555-1234"], b: "555-1234" }, [/\d{3}-\d{4}/])).toEqual({ a: ["call [REDACTED]"], b: "[REDACTED]" }));
@@ -348,10 +348,10 @@ test("toJsonArgs drops AbortSignal and functions", () =>
 test("toJsonArgs rejects circular", () => { const o: any = {}; o.self = o; expect(() => toJsonArgs([o])).toThrow(ReplayUsageError); });
 ```
 
-- [ ] **Step 2:** Run `npx vitest run test/unit/normalize.test.ts`. Expected: FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Re-run. Expected: PASS.
-- [ ] **Step 5: Commit** `feat: add request normalization, redaction and match keys`
+- [x] **Step 2:** Run `npx vitest run test/unit/normalize.test.ts`. Expected: FAIL.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Re-run. Expected: PASS.
+- [x] **Step 5: Commit** `feat: add request normalization, redaction and match keys`
 
 ---
 
@@ -391,13 +391,13 @@ Decisions:
 - Render order of sections, each printed only if it differs: Endpoint, Model (`model: a -> b`), System prompt (`diffLines`, `-`/`+` prefixed, unchanged lines with 2 spaces, at most 3 lines of context), Messages (`diffArrays` on rendered lines, showing added/removed only, plus a `(N unchanged)` count), Tools (`+ added name`, `- removed name`, `~ changed name (schema)` followed by an indented `diffLines` of the `stableStringify`'d schemas), Params (`~ key: old -> new`, `+ key: v`, `- key: v`). For unknown APIs, a `diffLines` of the `stableStringify`'d bodies. For tool steps: `Tool: name a -> b` and an args `diffLines`.
 - Header lines (exact copy):
   - changed: `Your agent changed at step {n} of {total}: {describeStep(recorded)}`
-  - extra: `Your agent made more calls than recorded: step {n} is new (recording has {total} steps): {describeStep(live)}`
+  - extra: `Your agent made more calls than recorded: step {n} is new (recording has {total} steps, or "1 step"): {describeStep(live)}`
   - missing: `Your agent made fewer calls than recorded: step {n} of {total} was never made: {describeStep(recorded)}`
   - first line before the header: `agent-retrace: recording "{name}" no longer matches.`
 - Footer: `Recording: {relative path}` then `To accept this change and re-record from step {n}, run:` then `  {command}`.
 - Commands: vitest `AGENT_RETRACE_MODE=update npx vitest run {rel}`, node-test `AGENT_RETRACE_MODE=update node --test {rel}`, unknown or no file `AGENT_RETRACE_MODE=update <your test command>`. `{rel}` is relative to `cwd` with `/` separators.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Build fixtures in `test/unit/fixtures/requests.ts`: one request per API shape (`openaiChat(overrides)`, `openaiResponses(overrides)`, `anthropicMessages(overrides)`).
 
@@ -429,10 +429,10 @@ test("detectRunner", () => {
 });
 ```
 
-- [ ] **Step 2:** Run `npx vitest run test/unit/semantic.test.ts test/unit/render.test.ts test/unit/command.test.ts`. Expected: FAIL.
-- [ ] **Step 3:** Implement. Use `diffLines` and `diffArrays` from `diff`, and `picocolors` (red for `-`, green for `+`, yellow for `~`, bold header).
-- [ ] **Step 4:** Re-run. Expected: PASS. Also print one rendered report to the terminal with color on and check it reads well.
-- [ ] **Step 5: Commit** `feat: add semantic request diff and change report rendering`
+- [x] **Step 2:** Run `npx vitest run test/unit/semantic.test.ts test/unit/render.test.ts test/unit/command.test.ts`. Expected: FAIL.
+- [x] **Step 3:** Implement. Use `diffLines` and `diffArrays` from `diff`, and `picocolors` (red for `-`, green for `+`, yellow for `~`, bold header).
+- [x] **Step 4:** Re-run. Expected: PASS. Also print one rendered report to the terminal with color on and check it reads well.
+- [x] **Step 5: Commit** `feat: add semantic request diff and change report rendering`
 
 ---
 
@@ -476,7 +476,7 @@ The algorithm is deterministic and does not depend on completion order:
 - `finish` sets `closed = true` before saving. Saved steps are not re-redacted here (capture already did it).
 - `stepNumber` for `changed` and `missing` is the recorded step's 1-based index. `totalSteps` is `recording.steps.length`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Helpers: `rec(...steps)`, `llm(id: string)` makes an `LlmStep` whose body is `{ model: "m", messages: [{ role: "user", content: id }] }` with response body `{ id }`, `tool(name, arg)`, and `session(strategy, recording?)` with a `save` spy.
 
@@ -513,11 +513,11 @@ test("update with fewer calls truncates", async () => { /* recording [a,b,c]; de
 test("closed after finish", async () => {});
 ```
 
-- [ ] **Step 2:** Run `npx vitest run test/unit/session.test.ts`. Expected: FAIL.
-- [ ] **Step 3:** Implement `Session`.
-- [ ] **Step 4:** Re-run. Expected: PASS.
-- [ ] **Step 5: Learning note** `docs/learning/async-context.md`: `AsyncLocalStorage` compared with Python `contextvars` and Go `context.Context`, why global state breaks `test.concurrent`, and why the runtime lives on `globalThis` (Review Focus 1).
-- [ ] **Step 6: Commit** `feat: add replay session state machine`
+- [x] **Step 2:** Run `npx vitest run test/unit/session.test.ts`. Expected: FAIL.
+- [x] **Step 3:** Implement `Session`.
+- [x] **Step 4:** Re-run. Expected: PASS.
+- [x] **Step 5: Learning note** `docs/learning/async-context.md`: `AsyncLocalStorage` compared with Python `contextvars` and Go `context.Context`, why global state breaks `test.concurrent`, and why the runtime lives on `globalThis` (Review Focus 1).
+- [x] **Step 6: Commit** `feat: add replay session state machine`
 
 ---
 

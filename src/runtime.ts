@@ -13,13 +13,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { AgentRetraceConfig } from "./config.js";
 import { defaultConfig } from "./defaults.js";
+import type { Session } from "./session.js";
 
 /**
  * Shared state for the whole process.
  */
 export interface Runtime {
   /** Carries the active replay session through async calls. */
-  als: AsyncLocalStorage<unknown>;
+  als: AsyncLocalStorage<Session>;
   /** Current configuration, replaced wholesale by `configure()`. */
   config: AgentRetraceConfig;
   /** Recording files used by a running `replay()`, to reject concurrent use. */
