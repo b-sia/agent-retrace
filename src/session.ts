@@ -135,6 +135,7 @@ export class Session {
    * @param fnError - The error the replayed function threw, if any.
    * @throws {ChangeDetectedError} On the first mismatch (with the function's error as `cause`), or when the agent made fewer calls than recorded.
    * @throws The function's own error when there was no change.
+   * @throws Any error from `save`.
    */
   async finish(fnError: { error: unknown } | undefined): Promise<void> {
     // Closed before saving so a request racing with the write is refused.
@@ -159,7 +160,7 @@ export class Session {
     if (fnError) throw fnError.error;
     const next = this.earliestUnconsumed(() => true);
     if (next !== undefined) {
-      throw this.errorOf(this.report("missing", next, undefined));
+      throw this.errorOf(this.report("missing", next + 1, this.steps[next], undefined));
     }
   }
 
@@ -183,11 +184,11 @@ export class Session {
       return { kind: "replay", step: this.steps[matched] as S };
     }
 
-    const report = this.mismatchReport(live);
     if (strategy === "update") {
       this.switched = true;
       return this.goLive<S>(seq);
     }
+    const report = this.mismatchReport(live);
     this.firstMismatch ??= report;
     return { kind: "fail", error: this.errorOf(report) };
   }
@@ -225,29 +226,33 @@ export class Session {
     target ??= this.earliestUnconsumed(() => true);
     if (target === undefined) {
       this.extraCount++;
-      const stepNumber = this.consumed.size + this.extraCount;
-      return { ...this.report("extra", stepNumber - 1, live), stepNumber };
+      return this.report("extra", this.consumed.size + this.extraCount, undefined, live);
     }
-    return this.report("changed", target, live);
+    return this.report("changed", target + 1, this.steps[target], live);
   }
 
   /**
    * Builds a change report.
    *
    * @param kind - The kind of change.
-   * @param index - 0-based index of the recorded step involved.
+   * @param stepNumber - 1-based step the report is about.
+   * @param recorded - The recorded step involved, absent for `extra`.
    * @param live - The live step, absent for `missing`.
    * @returns The report.
    */
-  private report(kind: ChangeReport["kind"], index: number, live: Step | undefined): ChangeReport {
-    const recorded = this.steps[index];
+  private report(
+    kind: ChangeReport["kind"],
+    stepNumber: number,
+    recorded: Step | undefined,
+    live: Step | undefined,
+  ): ChangeReport {
     return {
       recordingName: this.opts.name,
       recordingPath: this.opts.recordingPath,
       kind,
-      stepNumber: index + 1,
+      stepNumber,
       totalSteps: this.steps.length,
-      ...(recorded && kind !== "extra" ? { recorded } : {}),
+      ...(recorded ? { recorded } : {}),
       ...(live ? { live } : {}),
       command: this.opts.command,
       ignore: this.opts.config.ignore,
