@@ -391,7 +391,7 @@ Decisions:
 - Render order of sections, each printed only if it differs: Endpoint, Model (`model: a -> b`), System prompt (`diffLines`, `-`/`+` prefixed, unchanged lines with 2 spaces, at most 3 lines of context), Messages (`diffArrays` on rendered lines, showing added/removed only, plus a `(N unchanged)` count), Tools (`+ added name`, `- removed name`, `~ changed name (schema)` followed by an indented `diffLines` of the `stableStringify`'d schemas), Params (`~ key: old -> new`, `+ key: v`, `- key: v`). For unknown APIs, a `diffLines` of the `stableStringify`'d bodies. For tool steps: `Tool: name a -> b` and an args `diffLines`.
 - Header lines (exact copy):
   - changed: `Your agent changed at step {n} of {total}: {describeStep(recorded)}`
-  - extra: `Your agent made more calls than recorded: step {n} is new (recording has {total} steps, or "1 step"): {describeStep(live)}`
+  - extra: `Your agent made more calls than recorded: step {n} is new (recording has {total} steps, "1 step" when total is 1): {describeStep(live)}`
   - missing: `Your agent made fewer calls than recorded: step {n} of {total} was never made: {describeStep(recorded)}`
   - first line before the header: `agent-retrace: recording "{name}" no longer matches.`
 - Footer: `Recording: {relative path}` then `To accept this change and re-record from step {n}, run:` then `  {command}`.
