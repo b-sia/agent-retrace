@@ -70,4 +70,6 @@ identical recorded steps in recorded order.
 
 `finish()` sets `closed` before it saves. A request that starts after the replay ended, for example
 a forgotten background task, then finds a closed session and is refused instead of silently
-changing the recording.
+changing the recording. A request that started inside the replay but is still in flight when it
+ends is not recorded: its `commit` arrives after `closed` and is ignored, because the recording is
+already being written. Await all of the agent's work inside `replay()`.

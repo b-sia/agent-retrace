@@ -3,7 +3,11 @@
  */
 import { expect, test, vi } from "vitest";
 import { defaultConfig } from "../../src/defaults.js";
-import { ChangeDetectedError } from "../../src/errors.js";
+import {
+  ChangeDetectedError,
+  ProviderCallBlockedError,
+  ReplayUsageError,
+} from "../../src/errors.js";
 import type { LlmStep, Recording, Step, ToolStep } from "../../src/recording/format.js";
 import { type Decision, Session, type Strategy } from "../../src/session.js";
 
@@ -359,6 +363,33 @@ test("closed after finish, even when saving fails", async () => {
   });
   await expect(failing.finish(undefined)).rejects.toThrow("disk full");
   expect(failing.closed).toBe(true);
+});
+
+test("commit twice is a bug and throws", () => {
+  const { s } = session("record");
+  const d = s.decideLlm(llm("a").request) as Live<LlmStep>;
+  d.commit(llm("a"));
+  expect(() => d.commit(llm("a"))).toThrow(/more than once/);
+  expect(() => d.commit(undefined)).toThrow(/more than once/);
+});
+
+test("a commit that arrives after finish is ignored", async () => {
+  const { s, save } = session("record");
+  const d = s.decideLlm(llm("a").request) as Live<LlmStep>;
+  await s.finish(undefined);
+  d.commit(llm("a"));
+  expect(save.mock.calls[0]?.[0].steps).toEqual([]);
+});
+
+test("decisions after finish are refused", async () => {
+  const { s } = session("record");
+  await s.finish(undefined);
+  expect(() => s.decideLlm(llm("a").request)).toThrow(ProviderCallBlockedError);
+  expect(() => s.decideLlm(llm("a").request)).toThrow(/after its replay\(\) call had finished/);
+  expect(() => s.decideTool("t", [1])).toThrow(ReplayUsageError);
+  expect(() => s.decideTool("t", [1])).toThrow(
+    /tool "t" was called after replay\("demo"\) had finished/,
+  );
 });
 
 test("exposes its name", () => {

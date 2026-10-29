@@ -7,7 +7,7 @@
  */
 import type { AgentRetraceConfig } from "./config.js";
 import { type ChangeReport, renderChange } from "./diff/render.js";
-import { ChangeDetectedError } from "./errors.js";
+import { ChangeDetectedError, ProviderCallBlockedError, ReplayUsageError } from "./errors.js";
 import { llmMatchKey, toolMatchKey } from "./match/normalize.js";
 import type {
   JsonValue,
@@ -47,6 +47,7 @@ export interface SessionOptions {
 export type Decision<S extends Step> =
   | { kind: "replay"; step: S }
   // `commit(undefined)` drops the step (transient error, network failure).
+  // Call it exactly once; a commit after `finish()` is ignored.
   | { kind: "live"; commit(step: S | undefined): void }
   | { kind: "fail"; error: ChangeDetectedError };
 
@@ -95,7 +96,7 @@ export class Session {
   }
 
   /**
-   * Whether `finish()` has been called. Requests made afterwards are blocked.
+   * Whether `finish()` has been called. Decisions asked for afterwards throw.
    *
    * @returns True once the replay is over.
    */
@@ -108,8 +109,10 @@ export class Session {
    *
    * @param request - The captured, redacted request.
    * @returns Replay a step, go live, or fail with a change report.
+   * @throws {ProviderCallBlockedError} When the session is closed.
    */
   decideLlm(request: RecordedRequest): Decision<LlmStep> {
+    if (this.isClosed) throw new ProviderCallBlockedError(request.url, "after-replay");
     const key = llmMatchKey(request, this.opts.config);
     // Only the request is shown in a report; the response is not known yet.
     const live: LlmStep = {
@@ -126,8 +129,14 @@ export class Session {
    * @param name - Tool name.
    * @param args - Arguments, already converted with `toJsonArgs`.
    * @returns Replay a step, go live, or fail with a change report.
+   * @throws {ReplayUsageError} When the session is closed.
    */
   decideTool(name: string, args: JsonValue[]): Decision<ToolStep> {
+    if (this.isClosed) {
+      throw new ReplayUsageError(
+        `agent-retrace: tool ${JSON.stringify(name)} was called after replay(${JSON.stringify(this.opts.name)}) had finished. Await all of the agent's work inside replay().`,
+      );
+    }
     const key = toolMatchKey(name, args);
     // Only the name and arguments are shown in a report; the outcome is not known yet.
     const live: ToolStep = { type: "tool", name, args, outcome: { type: "return" } };
@@ -209,13 +218,18 @@ export class Session {
    * Makes a live decision whose step is stored in issue order when committed.
    *
    * @param seq - Sequence number taken when the request was issued.
-   * @returns A live decision.
+   * @returns A live decision whose `commit` throws if called twice.
    */
   private goLive<S extends Step>(seq: number): Decision<S> {
+    let committed = false;
     return {
       kind: "live",
       commit: (step) => {
-        if (step !== undefined) this.live.push({ seq, step });
+        if (committed) throw new Error(`agent-retrace bug: step ${seq} committed more than once`);
+        committed = true;
+        // A request still in flight when the replay ended cannot change a
+        // recording that is already being saved.
+        if (step !== undefined && !this.isClosed) this.live.push({ seq, step });
       },
     };
   }
