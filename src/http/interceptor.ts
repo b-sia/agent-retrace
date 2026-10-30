@@ -162,14 +162,14 @@ function forwardAndRecord(
  * @param original - The dispatcher we wrapped.
  * @param opts - The request options.
  * @param handler - The handler undici passed to `dispatch`.
- * @param session - The session that owns the request.
+ * @param decideLlm - Decides the request, from `session.reserveLlm()` taken when it was issued.
  * @param origin - Scheme, host and port of the request.
  */
 async function handleInSession(
   original: Dispatcher,
   opts: Dispatcher.DispatchOptions,
   handler: object,
-  session: Session,
+  decideLlm: ReturnType<Session["reserveLlm"]>,
   origin: string,
 ): Promise<void> {
   const body = await collectBody(opts.body);
@@ -178,7 +178,7 @@ async function handleInSession(
     { method: opts.method, origin, path: opts.path, headers: headersToRecord(opts.headers), body },
     config,
   );
-  const decision = session.decideLlm(request);
+  const decision = decideLlm(request);
   if (decision.kind === "replay") {
     playResponse(toSink(handler), encodeResponse(decision.step.response));
   } else if (decision.kind === "fail") {
@@ -235,7 +235,9 @@ function intercept(
     refuse(handler, new ProviderCallBlockedError(url.href, "after-replay").message);
     return true;
   }
-  handleInSession(original, opts, handler, session, origin).catch((err: unknown) => {
+  // The sequence number is taken now, before reading the body takes any time.
+  const decideLlm = session.reserveLlm();
+  handleInSession(original, opts, handler, decideLlm, origin).catch((err: unknown) => {
     refuse(handler, err instanceof Error ? err.message : String(err));
   });
   return true;

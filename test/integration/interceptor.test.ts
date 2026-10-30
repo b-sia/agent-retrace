@@ -318,6 +318,35 @@ test("a stream the consumer aborts is recorded up to the abort and replays", asy
   expect(provider.hits).toBe(1);
 });
 
+test("concurrent requests are recorded in the order they were issued", async () => {
+  const provider = await serve((_req, res, body) => res.end(body));
+  configure({ providerHosts: [provider.host] });
+  const { session, saved } = newSession("record");
+  await runtime().als.run(session, async () => {
+    // A's body takes longer to read than B's, so B is ready first.
+    const slowBody = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"id":'));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        controller.enqueue(new TextEncoder().encode('"A"}'));
+        controller.close();
+      },
+    });
+    const a = fetch(`${provider.url}/v1/x`, {
+      method: "POST",
+      body: slowBody,
+      duplex: "half",
+    } as RequestInit);
+    const b = fetch(`${provider.url}/v1/x`, { method: "POST", body: '{"id":"B"}' });
+    await Promise.all([(await a).arrayBuffer(), (await b).arrayBuffer()]);
+  });
+  await session.finish(undefined);
+  const ids = (saved[0] as Recording).steps.map(
+    (step) => ((step as LlmStep).request.body as { id: string }).id,
+  );
+  expect(ids).toEqual(["A", "B"]);
+});
+
 test("requests made with undici's own fetch are intercepted too", async () => {
   const provider = await serve((_req, res) => res.end('{"ok":true}'));
   configure({ providerHosts: [provider.host] });

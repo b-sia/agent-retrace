@@ -252,6 +252,24 @@ test("record saves in issue order regardless of commit order", async () => {
   expect(save.mock.calls[0]?.[0]).toEqual(rec(llm("a"), llm("b")));
 });
 
+test("record saves in reservation order when requests are decided out of order", async () => {
+  const { s, save } = session("record");
+  const decideA = s.reserveLlm();
+  const decideB = s.reserveLlm();
+  // B's body was read first, so its decision comes first.
+  (decideB(llm("b").request) as Live<LlmStep>).commit(llm("b"));
+  (decideA(llm("a").request) as Live<LlmStep>).commit(llm("a"));
+  await s.finish(undefined);
+  expect(save.mock.calls[0]?.[0]).toEqual(rec(llm("a"), llm("b")));
+});
+
+test("a reservation decided after finish throws", async () => {
+  const { s } = session("record");
+  const decide = s.reserveLlm();
+  await s.finish(undefined);
+  expect(() => decide(llm("a").request)).toThrow(ProviderCallBlockedError);
+});
+
 test("record drops undefined commits", async () => {
   const { s, save } = session("record");
   const d1 = s.decideLlm(llm("a").request) as Live<LlmStep>;

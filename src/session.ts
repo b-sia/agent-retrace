@@ -112,15 +112,30 @@ export class Session {
    * @throws {ProviderCallBlockedError} When the session is closed.
    */
   decideLlm(request: RecordedRequest): Decision<LlmStep> {
-    if (this.isClosed) throw new ProviderCallBlockedError(request.url, "after-replay");
-    const key = llmMatchKey(request, this.opts.config);
-    // Only the request is shown in a report; the response is not known yet.
-    const live: LlmStep = {
-      type: "llm",
-      request,
-      response: { status: 0, headers: {} },
+    return this.reserveLlm()(request);
+  }
+
+  /**
+   * Takes the sequence number of a provider request when it is issued, for a
+   * decision made once its body has been read. Requests whose bodies take
+   * different times to read are then still stored in the order they were
+   * issued.
+   *
+   * @returns The function that decides the request, as `decideLlm` does.
+   */
+  reserveLlm(): (request: RecordedRequest) => Decision<LlmStep> {
+    const seq = this.seq++;
+    return (request) => {
+      if (this.isClosed) throw new ProviderCallBlockedError(request.url, "after-replay");
+      const key = llmMatchKey(request, this.opts.config);
+      // Only the request is shown in a report; the response is not known yet.
+      const live: LlmStep = {
+        type: "llm",
+        request,
+        response: { status: 0, headers: {} },
+      };
+      return this.decide<LlmStep>(live, key, seq);
     };
-    return this.decide<LlmStep>(live, key);
   }
 
   /**
@@ -195,10 +210,10 @@ export class Session {
    *
    * @param live - The step the agent is making, with placeholders for what is not known yet.
    * @param key - Its match key.
+   * @param seq - Sequence number taken when the request was issued.
    * @returns The decision.
    */
-  private decide<S extends Step>(live: S, key: string): Decision<S> {
-    const seq = this.seq++;
+  private decide<S extends Step>(live: S, key: string, seq: number = this.seq++): Decision<S> {
     const { strategy } = this.opts;
     if (strategy === "record" || this.switched) return this.goLive<S>(seq);
 
