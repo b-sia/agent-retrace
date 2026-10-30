@@ -4,7 +4,7 @@
  */
 import https from "node:https";
 import { gzipSync } from "node:zlib";
-import { fetch as undiciFetch } from "undici";
+import { getGlobalDispatcher, fetch as undiciFetch } from "undici";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { configure, resetConfig } from "../../src/config.js";
 import { defaultConfig } from "../../src/defaults.js";
@@ -345,6 +345,23 @@ test("concurrent requests are recorded in the order they were issued", async () 
     (step) => ((step as LlmStep).request.body as { id: string }).id,
   );
   expect(ids).toEqual(["A", "B"]);
+});
+
+test("requests made with the dispatcher's request() method are intercepted", async () => {
+  const provider = await serve((_req, res) => res.end('{"ok":true}'));
+  configure({ providerHosts: [provider.host] });
+  const { session, saved } = newSession("record");
+  await runtime().als.run(session, async () => {
+    const res = await getGlobalDispatcher().request({
+      origin: provider.url,
+      path: "/v1/x",
+      method: "POST",
+      body: "{}",
+    });
+    expect(await res.body.json()).toEqual({ ok: true });
+  });
+  await session.finish(undefined);
+  expect((saved[0] as Recording).steps).toHaveLength(1);
 });
 
 test("requests made with undici's own fetch are intercepted too", async () => {

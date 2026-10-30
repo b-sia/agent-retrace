@@ -245,19 +245,26 @@ function intercept(
 
 /**
  * Wraps a dispatcher so that its `dispatch` goes through `intercept`. Every
- * other property is forwarded to the original, bound to it.
+ * other property is read from the original but not bound to it: methods such
+ * as `request`, `stream` and `compose` call `this.dispatch`, which must be
+ * the wrapper's.
  *
  * @param original - The dispatcher to wrap.
  * @returns The wrapper.
  */
 function wrap(original: Dispatcher): Dispatcher {
+  /**
+   * The wrapper's `dispatch`.
+   *
+   * @param opts - The request options.
+   * @param handler - The response handler.
+   * @returns What `intercept` returns.
+   */
   const dispatch = (opts: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler) =>
     intercept(original, opts, handler);
   return new Proxy(original, {
-    get(target, prop) {
-      if (prop === "dispatch") return dispatch;
-      const value = Reflect.get(target, prop, target);
-      return typeof value === "function" ? value.bind(target) : value;
+    get(target, prop, receiver) {
+      return prop === "dispatch" ? dispatch : Reflect.get(target, prop, receiver);
     },
   });
 }
