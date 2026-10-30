@@ -160,10 +160,13 @@ export function toSink(handler: object): ResponseSink {
   if (usesControllerApi(handler)) {
     let controller: object = {};
     return {
+      /** Builds the controller the handler gets and calls `onRequestStart`. */
       start(abort) {
         controller = {
           abort,
+          /** Does nothing: bodies are already in memory. */
           pause() {},
+          /** Does nothing: bodies are already in memory. */
           resume() {},
           paused: false,
           aborted: false,
@@ -171,26 +174,32 @@ export function toSink(handler: object): ResponseSink {
         };
         h.onRequestStart?.(controller, {});
       },
+      /** Calls `onResponseStart`. */
       headers(status, headers, statusText) {
         h.onResponseStart?.(controller, status, headers, statusText);
         return true;
       },
+      /** Calls `onResponseData`. */
       data(chunk) {
         h.onResponseData?.(controller, chunk);
         return true;
       },
+      /** Calls `onResponseEnd`. */
       end() {
         h.onResponseEnd?.(controller, {});
       },
+      /** Calls `onResponseError`. */
       error(err) {
         h.onResponseError?.(controller, err);
       },
     };
   }
   return {
+    /** Calls `onConnect`. */
     start(abort) {
       h.onConnect?.(abort, {});
     },
+    /** Calls `onHeaders` with the headers as a flat list of buffers. */
     headers(status, headers, statusText) {
       const raw = Object.entries(headers).flatMap(([name, value]) => [
         Buffer.from(name),
@@ -198,12 +207,15 @@ export function toSink(handler: object): ResponseSink {
       ]);
       return h.onHeaders?.(status, raw, () => {}, statusText) !== false;
     },
+    /** Calls `onData`. */
     data(chunk) {
       return h.onData?.(chunk) !== false;
     },
+    /** Calls `onComplete`. */
     end() {
       h.onComplete?.([]);
     },
+    /** Calls `onError`. */
     error(err) {
       h.onError?.(err);
     },
@@ -243,50 +255,63 @@ export function teeHandler(handler: object, observer: TeeObserver): object {
     ? ["onRequestUpgrade", "onBodySent"]
     : ["onUpgrade", "onBodySent", "onRequestSent", "onResponseStarted"];
   for (const name of passThrough) {
+    /** Forwards the callback unchanged. */
     tee[name] = (...args: unknown[]) => forward(name, args);
   }
   if (controllerApi) {
+    /** Hands the inner handler a controller whose `abort` is noted. */
     tee.onRequestStart = (...args: unknown[]) => {
       const controller = args[0] as Controller;
       // An object, not a Proxy: undici's controllers keep their state in
       // private fields, which a Proxy receiver cannot read.
       const wrapped: Controller = {
+        /** Notes the abort, then aborts. */
         abort(reason) {
           byConsumer = true;
           controller.abort(reason);
         },
+        /** Pauses the response. */
         pause: () => controller.pause(),
+        /** Resumes the response. */
         resume: () => controller.resume(),
+        /** Whether the request was aborted. */
         get aborted() {
           return controller.aborted;
         },
+        /** Whether the response is paused. */
         get paused() {
           return controller.paused;
         },
+        /** Why the request was aborted, if it was. */
         get reason() {
           return controller.reason;
         },
       };
       return forward("onRequestStart", [wrapped, ...args.slice(1)]);
     };
+    /** Tells the observer the headers, then forwards. */
     tee.onResponseStart = (...args: unknown[]) => {
       const [, status, headers] = args as [unknown, number, Record<string, string | string[]>];
       observer.headers(status, fromHeaderObject(headers));
       return forward("onResponseStart", args);
     };
+    /** Tells the observer the chunk, then forwards. */
     tee.onResponseData = (...args: unknown[]) => {
       observer.data(Buffer.from(args[1] as Uint8Array));
       return forward("onResponseData", args);
     };
+    /** Tells the observer the response ended, then forwards. */
     tee.onResponseEnd = (...args: unknown[]) => {
       observer.end();
       return forward("onResponseEnd", args);
     };
+    /** Tells the observer the error and who caused it, then forwards. */
     tee.onResponseError = (...args: unknown[]) => {
       observer.error(args[1] as Error, byConsumer);
       return forward("onResponseError", args);
     };
   } else {
+    /** Hands the inner handler an abort function that is noted. */
     tee.onConnect = (...args: unknown[]) => {
       const abort = args[0] as (reason?: Error) => void;
       /**
@@ -300,19 +325,23 @@ export function teeHandler(handler: object, observer: TeeObserver): object {
       };
       return forward("onConnect", [wrapped, ...args.slice(1)]);
     };
+    /** Tells the observer the headers, then forwards. */
     tee.onHeaders = (...args: unknown[]) => {
       const [status, raw] = args as [number, (Buffer | string)[]];
       observer.headers(status, fromRawHeaders(raw));
       return forward("onHeaders", args);
     };
+    /** Tells the observer the chunk, then forwards. */
     tee.onData = (...args: unknown[]) => {
       observer.data(Buffer.from(args[0] as Uint8Array));
       return forward("onData", args);
     };
+    /** Tells the observer the response ended, then forwards. */
     tee.onComplete = (...args: unknown[]) => {
       observer.end();
       return forward("onComplete", args);
     };
+    /** Tells the observer the error and who caused it, then forwards. */
     tee.onError = (...args: unknown[]) => {
       observer.error(args[0] as Error, byConsumer);
       return forward("onError", args);
@@ -334,6 +363,11 @@ export function teeHandler(handler: object, observer: TeeObserver): object {
  */
 export function playResponse(sink: ResponseSink, encoded: ReturnType<typeof encodeResponse>): void {
   let stopped = false;
+  /**
+   * The abort function the consumer gets: ends the response with an error.
+   *
+   * @param reason - Why the consumer aborted; an `AbortError` when not given.
+   */
   const abort = (reason?: Error) => {
     if (stopped) return;
     stopped = true;
@@ -341,6 +375,7 @@ export function playResponse(sink: ResponseSink, encoded: ReturnType<typeof enco
   };
   sink.start(abort);
   let next = 0;
+  /** Delivers the next chunk, or the end, and schedules the one after. */
   const step = () => {
     if (stopped) return;
     const chunk = encoded.chunks[next++];

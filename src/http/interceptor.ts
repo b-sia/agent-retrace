@@ -48,7 +48,7 @@ async function collectBody(body: unknown): Promise<Buffer | undefined> {
   if (Symbol.asyncIterator in (body as object) || Symbol.iterator in (body as object)) {
     const chunks: Buffer[] = [];
     for await (const chunk of body as AsyncIterable<string | Uint8Array>) {
-      chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk));
+      chunks.push(Buffer.from(chunk));
     }
     return Buffer.concat(chunks);
   }
@@ -74,6 +74,12 @@ function headerText(value: unknown): string {
  */
 function headersToRecord(headers: unknown): Record<string, string> {
   const out: Record<string, string> = {};
+  /**
+   * Adds one header to `out`, joining it to an earlier one of the same name.
+   *
+   * @param name - Header name.
+   * @param value - Header value, possibly an array.
+   */
   const add = (name: unknown, value: unknown) => {
     if (value === undefined) return;
     const key = String(name);
@@ -170,14 +176,17 @@ function forwardAndRecord(
     settle({ type: "llm", request: live.request, response });
   };
   const observer: TeeObserver = {
+    /** Keeps the status and headers. */
     headers(s, h) {
       status = s;
       headers = h;
     },
+    /** Keeps the chunk. */
     data(chunk) {
       chunks.push(chunk);
     },
     end: record,
+    /** Records what arrived before a consumer abort, drops anything else. */
     error(_err, byConsumer) {
       // Before the headers there is no response to store.
       if (byConsumer && status !== 0) return record();
@@ -393,6 +402,14 @@ export function installHttpGuard(): void {
       // Assigned onto the CommonJS exports object. The named exports that
       // ESM `import { request } from "node:https"` sees are copies, refreshed
       // below.
+      /**
+       * The guarded `request` or `get`: throws for a provider host while
+       * provider calls must go through `fetch`, otherwise calls the original.
+       *
+       * @param args - The arguments of the call.
+       * @returns What the original returns.
+       * @throws {ProviderCallBlockedError} For a provider host inside a replay or in replay mode.
+       */
       (mod as unknown as Record<string, unknown>)[name] = function guarded(
         this: unknown,
         ...args: unknown[]
