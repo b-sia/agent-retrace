@@ -13,7 +13,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { stripVTControlCharacters } from "node:util";
 import { Agent, type Dispatcher, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { getConfig, isProviderHost, resolveMode } from "../config.js";
-import { ProviderCallBlockedError } from "../errors.js";
+import { AgentRetraceError, ProviderCallBlockedError } from "../errors.js";
 import type { LlmStep, RecordedResponse } from "../recording/format.js";
 import { runtime } from "../runtime.js";
 import type { Session } from "../session.js";
@@ -24,7 +24,14 @@ import {
   errorResponse,
   isTransientStatus,
 } from "./capture.js";
-import { HANDLED, playResponse, type TeeObserver, teeHandler, toSink } from "./handler.js";
+import {
+  HANDLED,
+  playResponse,
+  type ResponseSink,
+  type TeeObserver,
+  teeHandler,
+  toSink,
+} from "./handler.js";
 
 /**
  * Collects a request body into one buffer.
@@ -75,11 +82,23 @@ function headersToRecord(headers: unknown): Record<string, string> {
 /**
  * Answers a request with a refusal instead of sending it.
  *
- * @param handler - The handler undici passed to `dispatch`.
+ * @param sink - Where the response goes, from `toSink(handler)`.
  * @param message - What went wrong.
  */
-function refuse(handler: object, message: string): void {
-  playResponse(toSink(handler), encodeResponse(errorResponse(stripVTControlCharacters(message))));
+function refuse(sink: ResponseSink, message: string): void {
+  playResponse(sink, encodeResponse(errorResponse(stripVTControlCharacters(message))));
+}
+
+/**
+ * Fails a request with an error the way undici does when it cannot send one,
+ * so the caller sees the real error (`fetch` puts it in `cause`).
+ *
+ * @param sink - Where the response goes, from `toSink(handler)`.
+ * @param err - The error.
+ */
+function failRequest(sink: ResponseSink, err: unknown): void {
+  sink.start(() => {});
+  sink.error(err instanceof Error ? err : new Error(String(err)));
 }
 
 /** What `forwardAndRecord` needs to turn a live response into a step. */
@@ -157,7 +176,15 @@ function forwardAndRecord(
 }
 
 /**
- * Handles a request to a provider host made inside an open session.
+ * Handles a request to a provider host made inside an open session, starting
+ * at most one response on the handler. Rejects only when the handler's own
+ * error callback throws.
+ *
+ * An error before the request is decided is answered by its kind: one of
+ * agent-retrace's own (a blocked call) with a 400 the SDKs do not retry,
+ * anything else (the caller's request body failing to read) with that error,
+ * as undici would. An error thrown by the handler itself once its response
+ * has started is passed to its error callback.
  *
  * @param original - The dispatcher we wrapped.
  * @param opts - The request options.
@@ -172,25 +199,43 @@ async function handleInSession(
   decideLlm: ReturnType<Session["reserveLlm"]>,
   origin: string,
 ): Promise<void> {
-  const body = await collectBody(opts.body);
-  const config = getConfig();
-  const { request, secrets } = captureRequest(
-    { method: opts.method, origin, path: opts.path, headers: headersToRecord(opts.headers), body },
-    config,
-  );
-  const decision = decideLlm(request);
-  if (decision.kind === "replay") {
-    playResponse(toSink(handler), encodeResponse(decision.step.response));
-  } else if (decision.kind === "fail") {
-    refuse(handler, decision.error.message);
-  } else {
-    const forwarded = { ...opts, body, [HANDLED]: true } as Dispatcher.DispatchOptions;
-    forwardAndRecord(original, forwarded, handler, {
-      request,
-      secrets,
+  const sink = toSink(handler);
+  // Worked out first and run once, so a failure while delivering never
+  // starts a second response.
+  let deliver: () => void;
+  try {
+    const body = await collectBody(opts.body);
+    const config = getConfig();
+    const { request, secrets } = captureRequest(
+      {
+        method: opts.method,
+        origin,
+        path: opts.path,
+        headers: headersToRecord(opts.headers),
+        body,
+      },
       config,
-      commit: decision.commit,
-    });
+    );
+    const decision = decideLlm(request);
+    if (decision.kind === "replay") {
+      deliver = () => playResponse(sink, encodeResponse(decision.step.response));
+    } else if (decision.kind === "fail") {
+      deliver = () => refuse(sink, decision.error.message);
+    } else {
+      const forwarded = { ...opts, body, [HANDLED]: true } as Dispatcher.DispatchOptions;
+      const live = { request, secrets, config, commit: decision.commit };
+      deliver = () => forwardAndRecord(original, forwarded, handler, live);
+    }
+  } catch (err) {
+    deliver =
+      err instanceof AgentRetraceError
+        ? () => refuse(sink, err.message)
+        : () => failRequest(sink, err);
+  }
+  try {
+    deliver();
+  } catch (err) {
+    sink.error(err instanceof Error ? err : new Error(String(err)));
   }
 }
 
@@ -228,19 +273,17 @@ function intercept(
       if (resolveMode() !== "replay") return original.dispatch(opts, handler);
       throw new ProviderCallBlockedError(url.href, "outside-replay");
     } catch (err) {
-      refuse(handler, (err as Error).message);
+      refuse(toSink(handler), (err as Error).message);
       return true;
     }
   }
   if (session.closed) {
-    refuse(handler, new ProviderCallBlockedError(url.href, "after-replay").message);
+    refuse(toSink(handler), new ProviderCallBlockedError(url.href, "after-replay").message);
     return true;
   }
   // The sequence number is taken now, before reading the body takes any time.
   const decideLlm = session.reserveLlm();
-  handleInSession(original, opts, handler, decideLlm, origin).catch((err: unknown) => {
-    refuse(handler, err instanceof Error ? err.message : String(err));
-  });
+  void handleInSession(original, opts, handler, decideLlm, origin);
   return true;
 }
 

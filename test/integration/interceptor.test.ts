@@ -3,6 +3,7 @@
  * against local servers that stand in for a provider.
  */
 import https from "node:https";
+import { Readable } from "node:stream";
 import { gzipSync } from "node:zlib";
 import {
   getGlobalDispatcher,
@@ -453,6 +454,100 @@ test("a multipart upload replays although its boundary is random", async () => {
   expect(await res.json()).toEqual({ id: "file-1" });
   await replay.session.finish(undefined);
   expect(provider.hits).toBe(1);
+});
+
+test("a request body that fails to read rejects with that error, not a 400", async () => {
+  const provider = await serve((_req, res) => res.end("{}"));
+  configure({ providerHosts: [provider.host] });
+  const { session, saved } = newSession("record");
+  await runtime().als.run(session, async () => {
+    /**
+     * A request body whose source fails after the first chunk.
+     *
+     * @yields The first chunk.
+     */
+    async function* body() {
+      yield '{"a":';
+      throw new Error("disk went away");
+    }
+    const sent = getGlobalDispatcher().request({
+      origin: provider.url,
+      path: "/v1/x",
+      method: "POST",
+      body: Readable.from(body()),
+    });
+    await expect(sent).rejects.toThrow("disk went away");
+  });
+  await session.finish(undefined);
+  expect(provider.hits).toBe(0);
+  expect((saved[0] as Recording).steps).toEqual([]);
+});
+
+test("a fetch whose body stream fails rejects and sends nothing", async () => {
+  const provider = await serve((_req, res) => res.end("{}"));
+  configure({ providerHosts: [provider.host] });
+  const { session, saved } = newSession("record");
+  await runtime().als.run(session, async () => {
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error("disk went away"));
+      },
+    });
+    const sent = fetch(`${provider.url}/v1/x`, {
+      method: "POST",
+      body,
+      duplex: "half",
+    } as RequestInit);
+    await expect(sent).rejects.toThrow("fetch failed");
+  });
+  await session.finish(undefined);
+  expect(provider.hits).toBe(0);
+  expect((saved[0] as Recording).steps).toEqual([]);
+});
+
+test("a handler that throws when the replay starts gets one response, not two", async () => {
+  const provider = await serve((_req, res) => res.end('{"ok":true}'));
+  configure({ providerHosts: [provider.host] });
+  const recording = await recordOnce(provider);
+  const { session } = newSession("strict", recording);
+  const calls: string[] = [];
+  const failed = new Promise<Error>((resolve) => {
+    const handler = {
+      onConnect() {
+        calls.push("connect");
+        throw new Error("consumer bug");
+      },
+      onHeaders() {
+        calls.push("headers");
+        return true;
+      },
+      onData() {
+        return true;
+      },
+      onComplete() {
+        calls.push("complete");
+      },
+      onError(err: Error) {
+        calls.push("error");
+        resolve(err);
+      },
+    };
+    runtime().als.run(session, () =>
+      getGlobalDispatcher().dispatch(
+        {
+          origin: provider.url,
+          path: "/v1/chat/completions",
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ model: "m", messages: [{ role: "user", content: "hi" }] }),
+        },
+        handler,
+      ),
+    );
+  });
+  expect((await failed).message).toBe("consumer bug");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(calls).toEqual(["connect", "error"]);
 });
 
 test("node:https to provider host throws in replay mode", () => {
