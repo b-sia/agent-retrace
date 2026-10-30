@@ -1,6 +1,7 @@
 /**
  * Tests for turning raw HTTP traffic into recorded requests and responses.
  */
+import { createHash } from "node:crypto";
 import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 import { expect, test, vi } from "vitest";
 import { defaultConfig } from "../../src/defaults.js";
@@ -71,6 +72,70 @@ test("captureRequest keeps a non-JSON body as text and a missing body as neither
     url: "https://api.openai.com/p",
     headers: {},
   });
+});
+
+/**
+ * Captures a request with the given body and content type.
+ *
+ * @param body - The raw body.
+ * @param contentType - The `content-type` header, if any.
+ * @returns The stored text of the request.
+ */
+function capturedText(body: Buffer, contentType?: string): string | undefined {
+  const headers: Record<string, string> = contentType ? { "Content-Type": contentType } : {};
+  const { request } = captureRequest(
+    { method: "POST", origin: "https://api.openai.com", path: "/v1/files", headers, body },
+    config,
+  );
+  return request.text;
+}
+
+/**
+ * Builds a multipart body with one text part and one binary part.
+ *
+ * @param boundary - The boundary to use.
+ * @returns The body.
+ */
+function multipart(boundary: string): Buffer {
+  return Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="purpose"\r\n\r\n`),
+    Buffer.from("fine-tune\r\n"),
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.bin"\r\n` +
+        "Content-Type: application/octet-stream\r\n\r\n",
+    ),
+    Buffer.from([0xff, 0x00, 0xfe]),
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+}
+
+test("captureRequest stores a multipart body the same whatever its boundary", () => {
+  const a = capturedText(multipart("AaB03x"), "multipart/form-data; boundary=AaB03x");
+  const b = capturedText(multipart("zz-99"), 'multipart/form-data; boundary="zz-99"');
+  expect(a).toBe(b);
+  expect(a).toBe(
+    [
+      "--agent-retrace-boundary",
+      'Content-Disposition: form-data; name="purpose"',
+      "",
+      "fine-tune",
+      "--agent-retrace-boundary",
+      'Content-Disposition: form-data; name="file"; filename="a.bin"',
+      "Content-Type: application/octet-stream",
+      "",
+      `[3 bytes, sha256 ${createHash("sha256")
+        .update(Buffer.from([0xff, 0x00, 0xfe]))
+        .digest("hex")}]`,
+      "--agent-retrace-boundary--",
+      "",
+    ].join("\r\n"),
+  );
+});
+
+test("captureRequest stores a binary body that is not multipart by its size and hash", () => {
+  const bytes = Buffer.from([0xff, 0xfe, 0xfd]);
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  expect(capturedText(bytes, "audio/wav")).toBe(`[3 bytes, sha256 ${hash}]`);
 });
 
 test("captureRequest applies user redact rules", () => {

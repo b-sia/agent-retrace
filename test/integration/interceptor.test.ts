@@ -417,6 +417,44 @@ test("a body sent as a stream is captured", async () => {
   expect(((saved[0] as Recording).steps[0] as LlmStep).request.body).toEqual({ a: 1 });
 });
 
+/**
+ * Uploads a file the way the SDKs do, as multipart/form-data. Every call
+ * builds a new FormData, so undici picks a new random boundary each time.
+ *
+ * @param server - Target server.
+ * @returns The fetch response.
+ */
+function upload(server: TestServer): Promise<Response> {
+  const form = new FormData();
+  form.append("purpose", "fine-tune");
+  const bytes = new Uint8Array([0xff, 0xfe, 0x00, 0x01, 0x80]);
+  form.append("file", new Blob([bytes], { type: "application/octet-stream" }), "data.bin");
+  return fetch(`${server.url}/v1/files`, { method: "POST", body: form });
+}
+
+test("a multipart upload replays although its boundary is random", async () => {
+  const provider = await serve((_req, res) => res.end('{"id":"file-1"}'));
+  configure({ providerHosts: [provider.host] });
+  const { session, saved } = newSession("record");
+  await runtime().als.run(session, async () => {
+    await (await upload(provider)).arrayBuffer();
+  });
+  await session.finish(undefined);
+  const recording = saved[0] as Recording;
+  const text = (recording.steps[0] as LlmStep).request.text as string;
+  expect(text).not.toMatch(/formdata-undici/);
+  expect(text).toContain('name="purpose"\r\n\r\nfine-tune\r\n');
+  // Binary content is not decoded as text, only identified.
+  expect(text).toMatch(/\[5 bytes, sha256 [0-9a-f]{64}\]/);
+
+  const replay = newSession("strict", recording);
+  const res = await runtime().als.run(replay.session, () => upload(provider));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ id: "file-1" });
+  await replay.session.finish(undefined);
+  expect(provider.hits).toBe(1);
+});
+
 test("node:https to provider host throws in replay mode", () => {
   vi.stubEnv("AGENT_RETRACE_MODE", "replay");
   expect(() => https.request("https://api.openai.com/v1/models")).toThrow(ProviderCallBlockedError);

@@ -2,6 +2,8 @@
  * Conversion between raw HTTP traffic (as the dispatcher sees it) and the
  * request and response shapes stored in a recording. Pure, no I/O.
  */
+import { isUtf8 } from "node:buffer";
+import { createHash } from "node:crypto";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
 import type { AgentRetraceConfig } from "../config.js";
 import {
@@ -60,7 +62,8 @@ function pick(headers: Record<string, string>, allowed: readonly string[]): Reco
  * the credentials that must never be written.
  *
  * Only the headers that take part in matching are kept. A JSON body is stored
- * parsed, anything else as text. User redaction rules run first, then every
+ * parsed, anything else as text: a multipart body with a fixed boundary, and
+ * bytes that are not UTF-8 by size and hash. User redaction rules run first, then every
  * known credential is scrubbed, including provider keys from the environment
  * in case a prompt or tool result echoes them.
  *
@@ -84,14 +87,96 @@ export function captureRequest(
     headers: pick(headers, MATCHED_REQUEST_HEADERS),
   };
   if (input.body !== undefined && input.body.length > 0) {
-    const text = input.body.toString("utf8");
-    try {
-      request.body = JSON.parse(text) as JsonValue;
-    } catch {
-      request.text = text;
+    const boundary = multipartBoundary(headers["content-type"]);
+    if (boundary !== undefined) {
+      request.text = multipartText(input.body, boundary);
+    } else {
+      try {
+        request.body = JSON.parse(input.body.toString("utf8")) as JsonValue;
+      } catch {
+        request.text = bytesText(input.body);
+      }
     }
   }
   return { request: finish(request, secrets, config), secrets };
+}
+
+/** Stands in for the boundary of a multipart body, which is random on every request. */
+const FIXED_BOUNDARY = "agent-retrace-boundary";
+
+/**
+ * Reads the boundary of a multipart `content-type`.
+ *
+ * @param contentType - The `content-type` header, if any.
+ * @returns The boundary, or undefined when the body is not multipart.
+ */
+function multipartBoundary(contentType: string | undefined): string | undefined {
+  const match = /^\s*multipart\/[^;]*;(?:.*;)?\s*boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(
+    contentType ?? "",
+  );
+  return match?.[1] ?? match?.[2];
+}
+
+/**
+ * Turns bytes into text to store. Bytes that are not UTF-8 (an image, audio)
+ * would be garbled by decoding and bloat the recording, so they are stored
+ * by size and hash: enough to tell whether they changed.
+ *
+ * @param bytes - The bytes.
+ * @returns The decoded text, or `[<n> bytes, sha256 <hex>]`.
+ */
+function bytesText(bytes: Buffer): string {
+  if (isUtf8(bytes)) return bytes.toString("utf8");
+  return `[${bytes.length} bytes, sha256 ${createHash("sha256").update(bytes).digest("hex")}]`;
+}
+
+/**
+ * Splits bytes at every occurrence of a separator.
+ *
+ * @param bytes - The bytes.
+ * @param separator - What to split at.
+ * @returns The pieces between separators, possibly empty.
+ */
+function splitBytes(bytes: Buffer, separator: Buffer): Buffer[] {
+  const pieces: Buffer[] = [];
+  let start = 0;
+  for (let at = bytes.indexOf(separator); at !== -1; at = bytes.indexOf(separator, start)) {
+    pieces.push(bytes.subarray(start, at));
+    start = at + separator.length;
+  }
+  pieces.push(bytes.subarray(start));
+  return pieces;
+}
+
+/**
+ * Turns a multipart body into text that is the same on every run: the
+ * random boundary becomes a fixed one, and each part's content goes through
+ * `bytesText`, so a file part is stored by size and hash. Part headers (name,
+ * filename, type) are kept as sent.
+ *
+ * @param body - The raw body.
+ * @param boundary - The boundary from the `content-type` header.
+ * @returns The text to store.
+ */
+function multipartText(body: Buffer, boundary: string): string {
+  const [preamble = Buffer.alloc(0), ...parts] = splitBytes(body, Buffer.from(`--${boundary}`));
+  const texts = parts.map((part) => {
+    // A part is "\r\n" headers "\r\n\r\n" content, then the "\r\n" that
+    // belongs to the next delimiter. The final piece is just "--\r\n".
+    const headerEnd = part.indexOf("\r\n\r\n");
+    if (headerEnd === -1) return bytesText(part);
+    const contentStart = headerEnd + 4;
+    const contentEnd = Math.max(
+      contentStart,
+      part.subarray(-2).toString("latin1") === "\r\n" ? part.length - 2 : part.length,
+    );
+    return (
+      part.subarray(0, contentStart).toString("utf8") +
+      bytesText(part.subarray(contentStart, contentEnd)) +
+      part.subarray(contentEnd).toString("utf8")
+    );
+  });
+  return [bytesText(preamble), ...texts].join(`--${FIXED_BOUNDARY}`);
 }
 
 /**
