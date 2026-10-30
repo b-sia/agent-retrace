@@ -95,6 +95,11 @@ interface LiveRecording {
  * completes. The step is handed to the session exactly once: dropped for a
  * transient failure, a network error, or a response that cannot be stored.
  *
+ * A response the consumer aborts after its headers arrived (an SDK stream
+ * the agent stopped reading) is recorded with the body received so far. The
+ * request did happen, and an agent that stops at the same point on replay
+ * reads the same events.
+ *
  * @param original - The dispatcher we wrapped.
  * @param opts - The request options, with the body already collected.
  * @param handler - The handler undici passed to `dispatch`.
@@ -110,10 +115,28 @@ function forwardAndRecord(
   let headers: Record<string, string> = {};
   const chunks: Buffer[] = [];
   let settled = false;
+  /**
+   * Hands the step to the session, the first time only.
+   *
+   * @param value - The step, or undefined to drop it.
+   */
   const settle = (value: LlmStep | undefined) => {
     if (settled) return;
     settled = true;
     live.commit(value);
+  };
+  /** Records the response received so far, unless it is not worth storing. */
+  const record = () => {
+    if (isTransientStatus(status)) return settle(undefined);
+    let response: RecordedResponse;
+    try {
+      response = captureResponse(status, headers, Buffer.concat(chunks), live.secrets, live.config);
+    } catch (err) {
+      // The caller already has its response; only the recording is affected.
+      process.emitWarning((err as Error).message, "AgentRetraceWarning");
+      return settle(undefined);
+    }
+    settle({ type: "llm", request: live.request, response });
   };
   const observer: TeeObserver = {
     headers(s, h) {
@@ -123,25 +146,10 @@ function forwardAndRecord(
     data(chunk) {
       chunks.push(chunk);
     },
-    end() {
-      if (isTransientStatus(status)) return settle(undefined);
-      let response: RecordedResponse;
-      try {
-        response = captureResponse(
-          status,
-          headers,
-          Buffer.concat(chunks),
-          live.secrets,
-          live.config,
-        );
-      } catch (err) {
-        // The caller already has its response; only the recording is affected.
-        process.emitWarning((err as Error).message, "AgentRetraceWarning");
-        return settle(undefined);
-      }
-      settle({ type: "llm", request: live.request, response });
-    },
-    error() {
+    end: record,
+    error(_err, byConsumer) {
+      // Before the headers there is no response to store.
+      if (byConsumer && status !== 0) return record();
       settle(undefined);
     },
   };

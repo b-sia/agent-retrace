@@ -269,6 +269,55 @@ test("abort during replay rejects with AbortError", async () => {
   });
 });
 
+/**
+ * Sends a streaming request and aborts it once the first event has arrived,
+ * the way an SDK does when the agent breaks out of a stream early.
+ *
+ * @param server - Target server.
+ * @returns The text received before the abort.
+ */
+async function readFirstEventThenAbort(server: TestServer): Promise<string> {
+  const controller = new AbortController();
+  const res = await fetch(`${server.url}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "m", stream: true }),
+    signal: controller.signal,
+  });
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  let seen = "";
+  while (!seen.includes("\n\n")) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    seen += Buffer.from(value).toString();
+  }
+  controller.abort();
+  await expect(reader.read()).rejects.toMatchObject({ name: "AbortError" });
+  return seen;
+}
+
+test("a stream the consumer aborts is recorded up to the abort and replays", async () => {
+  const provider = await serve((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    // The rest of the stream never comes; the client stops reading first.
+    res.write('data: {"n":1}\n\n');
+  });
+  configure({ providerHosts: [provider.host] });
+
+  const { session, saved } = newSession("record");
+  await runtime().als.run(session, () => readFirstEventThenAbort(provider));
+  await session.finish(undefined);
+  const recording = saved[0] as Recording;
+  expect(recording.steps).toHaveLength(1);
+  expect((recording.steps[0] as LlmStep).response.events).toEqual([{ data: { n: 1 } }]);
+
+  const replay = newSession("strict", recording);
+  const seen = await runtime().als.run(replay.session, () => readFirstEventThenAbort(provider));
+  await replay.session.finish(undefined);
+  expect(seen).toBe('data: {"n":1}\n\n');
+  expect(provider.hits).toBe(1);
+});
+
 test("requests made with undici's own fetch are intercepted too", async () => {
   const provider = await serve((_req, res) => res.end('{"ok":true}'));
   configure({ providerHosts: [provider.host] });

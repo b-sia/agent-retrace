@@ -147,6 +147,78 @@ test("teeHandler observes a legacy response and forwards every call", () => {
   expect(tee.onResponseStart).toBeUndefined();
 });
 
+test("teeHandler tells a consumer abort from a network error on the legacy API", () => {
+  const errors: unknown[][] = [];
+  const observer = {
+    headers: () => {},
+    data: () => {},
+    end: () => {},
+    error: (err: Error, byConsumer: boolean) => errors.push([err.message, byConsumer]),
+  };
+  let consumerAbort: ((reason?: Error) => void) | undefined;
+  const reasons: unknown[] = [];
+  const handler = {
+    onConnect: (abort: (reason?: Error) => void) => {
+      consumerAbort = abort;
+    },
+    onError: () => {},
+  };
+  const tee = teeHandler(handler, observer) as Record<string, (...args: unknown[]) => unknown>;
+  tee.onConnect?.((reason: unknown) => reasons.push(reason), {});
+  const reason = new Error("stop");
+  consumerAbort?.(reason);
+  expect(reasons).toEqual([reason]);
+  tee.onError?.(reason);
+
+  const other = teeHandler(handler, observer) as Record<string, (...args: unknown[]) => unknown>;
+  other.onConnect?.(() => {}, {});
+  other.onError?.(new Error("socket hang up"));
+  expect(errors).toEqual([
+    ["stop", true],
+    ["socket hang up", false],
+  ]);
+});
+
+test("teeHandler tells a consumer abort from a network error on the new API", () => {
+  const errors: unknown[][] = [];
+  const observer = {
+    headers: () => {},
+    data: () => {},
+    end: () => {},
+    error: (err: Error, byConsumer: boolean) => errors.push([err.message, byConsumer]),
+  };
+  const seenControllers: { abort(r?: Error): void; paused: boolean }[] = [];
+  const handler = {
+    onRequestStart: (c: { abort(r?: Error): void; paused: boolean }) =>
+      void seenControllers.push(c),
+    onResponseError: () => {},
+  };
+  const reasons: unknown[] = [];
+  const controller = {
+    abort: (reason?: Error) => void reasons.push(reason),
+    pause() {},
+    resume() {},
+    aborted: false,
+    paused: true,
+    reason: null,
+  };
+  const tee = teeHandler(handler, observer) as Record<string, (...args: unknown[]) => unknown>;
+  tee.onRequestStart?.(controller, {});
+  const reason = new Error("stop");
+  seenControllers[0]?.abort(reason);
+  expect(reasons).toEqual([reason]);
+  expect(seenControllers[0]?.paused).toBe(true);
+  tee.onResponseError?.(controller, reason);
+
+  const other = teeHandler(handler, observer) as Record<string, (...args: unknown[]) => unknown>;
+  other.onRequestStart?.(controller, {});
+  other.onResponseError?.(controller, new Error("socket hang up"));
+  expect(errors).toEqual([
+    ["stop", true],
+    ["socket hang up", false],
+  ]);
+});
+
 test("teeHandler observes a new-API response and forwards every call", () => {
   const { handler, calls } = modernHandler();
   const seen: unknown[][] = [];

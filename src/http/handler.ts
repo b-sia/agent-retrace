@@ -76,8 +76,19 @@ export interface TeeObserver {
    * Called when the response failed.
    *
    * @param err - The error.
+   * @param byConsumer - True when the consumer aborted the request (e.g. an SDK stream the agent stopped reading), false for a network or server failure.
    */
-  error(err: Error): void;
+  error(err: Error, byConsumer: boolean): void;
+}
+
+/** The controller of the controller-style API, as far as a handler may use it. */
+interface Controller {
+  abort(reason?: Error): void;
+  pause(): void;
+  resume(): void;
+  readonly aborted: boolean;
+  readonly paused: boolean;
+  readonly reason: Error | null;
 }
 
 /**
@@ -216,18 +227,44 @@ export function teeHandler(handler: object, observer: TeeObserver): object {
    * @returns What the inner method returned.
    */
   const forward = (name: string, args: unknown[]): unknown => inner[name]?.apply(handler, args);
+  // The abort function handed to the inner handler is wrapped, so an error
+  // that follows a call to it is known to come from the consumer.
+  let byConsumer = false;
   const tee: Record<string | symbol, unknown> = { [HANDLED]: true };
   const controllerApi = usesControllerApi(handler);
   // Callbacks that only pass through. Only the names of the API in use are
   // added: undici takes a handler with `onRequestStart` for a controller-style
   // one, so a legacy tee must not have it.
   const passThrough = controllerApi
-    ? ["onRequestStart", "onRequestUpgrade", "onBodySent"]
-    : ["onConnect", "onUpgrade", "onBodySent", "onRequestSent", "onResponseStarted"];
+    ? ["onRequestUpgrade", "onBodySent"]
+    : ["onUpgrade", "onBodySent", "onRequestSent", "onResponseStarted"];
   for (const name of passThrough) {
     tee[name] = (...args: unknown[]) => forward(name, args);
   }
   if (controllerApi) {
+    tee.onRequestStart = (...args: unknown[]) => {
+      const controller = args[0] as Controller;
+      // An object, not a Proxy: undici's controllers keep their state in
+      // private fields, which a Proxy receiver cannot read.
+      const wrapped: Controller = {
+        abort(reason) {
+          byConsumer = true;
+          controller.abort(reason);
+        },
+        pause: () => controller.pause(),
+        resume: () => controller.resume(),
+        get aborted() {
+          return controller.aborted;
+        },
+        get paused() {
+          return controller.paused;
+        },
+        get reason() {
+          return controller.reason;
+        },
+      };
+      return forward("onRequestStart", [wrapped, ...args.slice(1)]);
+    };
     tee.onResponseStart = (...args: unknown[]) => {
       const [, status, headers] = args as [unknown, number, Record<string, string | string[]>];
       observer.headers(status, fromHeaderObject(headers));
@@ -242,10 +279,23 @@ export function teeHandler(handler: object, observer: TeeObserver): object {
       return forward("onResponseEnd", args);
     };
     tee.onResponseError = (...args: unknown[]) => {
-      observer.error(args[1] as Error);
+      observer.error(args[1] as Error, byConsumer);
       return forward("onResponseError", args);
     };
   } else {
+    tee.onConnect = (...args: unknown[]) => {
+      const abort = args[0] as (reason?: Error) => void;
+      /**
+       * The abort function the inner handler gets: notes the abort, then aborts.
+       *
+       * @param reason - Why the consumer aborted.
+       */
+      const wrapped = (reason?: Error) => {
+        byConsumer = true;
+        abort(reason);
+      };
+      return forward("onConnect", [wrapped, ...args.slice(1)]);
+    };
     tee.onHeaders = (...args: unknown[]) => {
       const [status, raw] = args as [number, (Buffer | string)[]];
       observer.headers(status, fromRawHeaders(raw));
@@ -260,7 +310,7 @@ export function teeHandler(handler: object, observer: TeeObserver): object {
       return forward("onComplete", args);
     };
     tee.onError = (...args: unknown[]) => {
-      observer.error(args[0] as Error);
+      observer.error(args[0] as Error, byConsumer);
       return forward("onError", args);
     };
   }
