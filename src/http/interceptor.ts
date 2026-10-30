@@ -56,7 +56,18 @@ async function collectBody(body: unknown): Promise<Buffer | undefined> {
 }
 
 /**
- * Converts request headers in any of the forms undici accepts to a record.
+ * Converts one header value to the text undici sends for it.
+ *
+ * @param value - A header value as the caller gave it.
+ * @returns The text: null is sent as an empty value.
+ */
+function headerText(value: unknown): string {
+  return value === null ? "" : String(value);
+}
+
+/**
+ * Converts request headers in any of the forms undici accepts to a record,
+ * leaving out the headers undici does not send (a value of undefined).
  *
  * @param headers - A record (values may be arrays), a flat `[name, value, ...]` array, or an iterable of pairs.
  * @returns The headers, repeated values joined by ", ".
@@ -64,8 +75,9 @@ async function collectBody(body: unknown): Promise<Buffer | undefined> {
 function headersToRecord(headers: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   const add = (name: unknown, value: unknown) => {
+    if (value === undefined) return;
     const key = String(name);
-    const text = Array.isArray(value) ? value.join(", ") : String(value);
+    const text = Array.isArray(value) ? value.map(headerText).join(", ") : headerText(value);
     out[key] = key in out ? `${out[key]}, ${text}` : text;
   };
   if (headers === undefined || headers === null) return out;

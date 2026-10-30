@@ -550,6 +550,27 @@ test("a handler that throws when the replay starts gets one response, not two", 
   expect(calls).toEqual(["connect", "error"]);
 });
 
+test("a header set to undefined is left out, as undici does", async () => {
+  const provider = await serve((_req, res) => res.end("{}"));
+  configure({ providerHosts: [provider.host] });
+  const { session, saved } = newSession("record");
+  await runtime().als.run(session, async () => {
+    const res = await getGlobalDispatcher().request({
+      origin: provider.url,
+      path: "/v1/x",
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: undefined },
+      body: '{"note":"undefined behaviour"}',
+    });
+    await res.body.arrayBuffer();
+  });
+  await session.finish(undefined);
+  // Taken for a secret, "undefined" would be scrubbed from the body.
+  expect(((saved[0] as Recording).steps[0] as LlmStep).request.body).toEqual({
+    note: "undefined behaviour",
+  });
+});
+
 test("node:https to provider host throws in replay mode", () => {
   vi.stubEnv("AGENT_RETRACE_MODE", "replay");
   expect(() => https.request("https://api.openai.com/v1/models")).toThrow(ProviderCallBlockedError);
