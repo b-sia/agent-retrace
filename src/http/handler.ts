@@ -14,10 +14,14 @@ type Method = (...args: unknown[]) => unknown;
 type Loose = Record<string, Method | undefined>;
 
 /**
- * Marks tee handlers made here. A second interceptor further down a stack of
+ * Marks requests already captured, on both the tee handler and the dispatch
+ * options it is sent with. A second interceptor further down a stack of
  * dispatchers (two copies of the library, or a foreign wrapper that forwards
  * to ours) sees the mark and leaves the request alone instead of capturing
- * it twice. `Symbol.for` so every copy agrees on the key.
+ * it twice. Foreign interceptors (undici's `compose`, retry and redirect)
+ * wrap the handler but copy the options with a spread, which keeps the mark;
+ * others rebuild the options but pass the handler on. `Symbol.for` so every
+ * copy agrees on the key.
  */
 export const HANDLED = Symbol.for("agent-retrace.handled.v1");
 

@@ -184,7 +184,8 @@ async function handleInSession(
   } else if (decision.kind === "fail") {
     refuse(handler, decision.error.message);
   } else {
-    forwardAndRecord(original, { ...opts, body }, handler, {
+    const forwarded = { ...opts, body, [HANDLED]: true } as Dispatcher.DispatchOptions;
+    forwardAndRecord(original, forwarded, handler, {
       request,
       secrets,
       config,
@@ -207,7 +208,7 @@ function intercept(
   handler: Dispatcher.DispatchHandler,
 ): boolean {
   // Already seen by an interceptor above this one in the stack.
-  if ((handler as Record<symbol, unknown>)[HANDLED]) return original.dispatch(opts, handler);
+  if (HANDLED in opts || HANDLED in handler) return original.dispatch(opts, handler);
   const rawOrigin = opts.origin;
   if (rawOrigin === undefined) return original.dispatch(opts, handler);
   const origin = (typeof rawOrigin === "string" ? rawOrigin : rawOrigin.origin).replace(/\/$/, "");

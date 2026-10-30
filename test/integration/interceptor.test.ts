@@ -4,7 +4,12 @@
  */
 import https from "node:https";
 import { gzipSync } from "node:zlib";
-import { getGlobalDispatcher, fetch as undiciFetch } from "undici";
+import {
+  getGlobalDispatcher,
+  interceptors,
+  setGlobalDispatcher,
+  fetch as undiciFetch,
+} from "undici";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { configure, resetConfig } from "../../src/config.js";
 import { defaultConfig } from "../../src/defaults.js";
@@ -362,6 +367,22 @@ test("requests made with the dispatcher's request() method are intercepted", asy
   });
   await session.finish(undefined);
   expect((saved[0] as Recording).steps).toHaveLength(1);
+});
+
+test("a call through a composed interceptor between two wrappers is captured once", async () => {
+  const before = getGlobalDispatcher();
+  // The retry interceptor wraps the handler, so a mark on the handler is lost.
+  setGlobalDispatcher(before.compose(interceptors.retry()));
+  try {
+    installInterceptor();
+    const provider = await serve((_req, res) => res.end("{}"));
+    configure({ providerHosts: [provider.host] });
+    const recording = await recordOnce(provider);
+    expect(recording.steps).toHaveLength(1);
+    expect(provider.hits).toBe(1);
+  } finally {
+    setGlobalDispatcher(before);
+  }
 });
 
 test("requests made with undici's own fetch are intercepted too", async () => {
