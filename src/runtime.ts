@@ -26,7 +26,12 @@ export interface Runtime {
   /** Recording files used by a running `replay()`, to reject concurrent use. */
   activePaths: Set<string>;
   /** What has been installed into Node globals, so it is installed once. */
-  installed: { dispatcher?: object; httpGuard?: boolean };
+  installed: {
+    /** Every dispatcher wrapper made by any copy of the library, to tell ours from a foreign one. */
+    dispatchers?: WeakSet<object>;
+    /** Whether `node:http` and `node:https` are already guarded. */
+    httpGuard?: boolean;
+  };
 }
 
 // `Symbol.for` returns the same symbol for the same string across module

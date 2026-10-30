@@ -566,7 +566,7 @@ Decisions:
 - **playResponse:** call `start(abort)`, then on `setImmediate` call `headers`, then each chunk on its own `setImmediate` tick (SSE is one chunk per event, so the SDK sees a real stream), then `end`. If `abort` is called, stop and call `error(reason ?? new DOMException("aborted", "AbortError"))`. Never send `content-encoding` or `content-length`.
 - **installHttpGuard:** wrap `request` and `get` of `node:http` and `node:https`, then call `syncBuiltinESMExports()` from `node:module` so named ESM imports see the wrapper. A provider host throws `ProviderCallBlockedError(url, "node-http")` when a session is active, or when there is no session and the mode is `replay`. Everything else passes through. The error message says agent-retrace intercepts provider calls made with `fetch` only.
 
-- [ ] **Step 1: Write failing unit tests** (`sse.test.ts`, `capture.test.ts`)
+- [x] **Step 1: Write failing unit tests** (`sse.test.ts`, `capture.test.ts`)
 
 ```ts
 test("parse/serialize SSE round trip", () => {
@@ -589,7 +589,7 @@ test("gzip response decoded", () => {
 test.each([[429, true], [500, true], [503, true], [400, false], [200, false]])("transient %d", (s, t) => expect(isTransientStatus(s)).toBe(t));
 ```
 
-- [ ] **Step 2: Write failing integration tests** (`interceptor.test.ts`)
+- [x] **Step 2: Write failing integration tests** (`interceptor.test.ts`)
 
 `test/support/http-server.ts` exports `startServer(handler): Promise<{ url: string; host: string; hits: number; close(): Promise<void> }>` on `127.0.0.1:0`. Configure that `host` as a provider host. Drive sessions directly with `runtime().als.run(new Session(...), fn)` using plain `fetch`.
 
@@ -613,11 +613,11 @@ test("node:https to provider host throws in replay mode", () => {
 test("installInterceptor is idempotent", () => { installInterceptor(); installInterceptor(); /* wrapped exactly once: provider hits stay correct */ });
 ```
 
-- [ ] **Step 3:** Run `npx vitest run test/unit/sse.test.ts test/unit/capture.test.ts test/integration/interceptor.test.ts`. Expected: FAIL.
-- [ ] **Step 4:** Implement the four files.
-- [ ] **Step 5:** Re-run. Expected: PASS.
-- [ ] **Step 6: Learning note** `docs/learning/undici-and-streams.md`: Node's fetch is undici, what a dispatcher is, the handler callbacks, backpressure, `setImmediate` vs `process.nextTick`, why fetch decompresses but dispatcher bytes are raw, and patching built-ins with `syncBuiltinESMExports`.
-- [ ] **Step 7: Commit** `feat: intercept provider HTTP calls via the global undici dispatcher`
+- [x] **Step 3:** Run `npx vitest run test/unit/sse.test.ts test/unit/capture.test.ts test/integration/interceptor.test.ts`. Expected: FAIL.
+- [x] **Step 4:** Implement the four files.
+- [x] **Step 5:** Re-run. Expected: PASS.
+- [x] **Step 6: Learning note** `docs/learning/undici-and-streams.md`: Node's fetch is undici, what a dispatcher is, the handler callbacks, backpressure, `setImmediate` vs `process.nextTick`, why fetch decompresses but dispatcher bytes are raw, and patching built-ins with `syncBuiltinESMExports`.
+- [x] **Step 7: Commit** `feat: intercept provider HTTP calls via the global undici dispatcher`
 
 ---
 
