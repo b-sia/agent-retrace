@@ -2,6 +2,19 @@
  * Error classes thrown by agent-retrace. Every error extends
  * `AgentRetraceError`, so callers can catch all of them with one check.
  */
+import { isAbsolute, relative, sep } from "node:path";
+
+/**
+ * Shows a path relative to the working directory when it lies inside it.
+ *
+ * @param path - An absolute path.
+ * @returns The relative path, or the absolute one when it is outside the working directory.
+ */
+function displayPath(path: string): string {
+  const rel = relative(process.cwd(), path);
+  const outside = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  return rel === "" || outside ? path : rel;
+}
 
 /**
  * Base class for every error thrown by agent-retrace.
@@ -91,10 +104,12 @@ export class RecordingNotFoundError extends AgentRetraceError {
   /**
    * @param recordingName - Name passed to `replay()`.
    * @param filePath - Absolute path where the recording was expected.
-   * @param command - Shell command that records it.
+   * @param command - Shell command that runs the test locally, which records it.
    */
   constructor(recordingName: string, filePath: string, command: string) {
-    super(`No recording "${recordingName}" at ${filePath}. Record it with:\n\n  ${command}\n`);
+    super(
+      `No recording "${recordingName}" at ${displayPath(filePath)}. Recordings are created when tests run locally (without CI set). Run ${command} and commit the __recordings__ folder.`,
+    );
     this.recordingName = recordingName;
     this.filePath = filePath;
     this.command = command;

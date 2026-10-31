@@ -2,7 +2,7 @@
  * Tests for test runner detection and the re-record command.
  */
 import { expect, test } from "vitest";
-import { detectRunner, rerecordCommand } from "../../src/diff/command.js";
+import { detectRunner, rerecordCommand, runCommand } from "../../src/diff/command.js";
 
 test("detectRunner", () => {
   expect(detectRunner({ VITEST: "true" }, [], [])).toBe("vitest");
@@ -38,3 +38,9 @@ test("rerecordCommand quotes paths the shell would split", () =>
   expect(rerecordCommand("vitest", "/w/my tests/it's.test.ts", "/w")).toBe(
     "AGENT_RETRACE_MODE=update npx vitest run 'my tests/it'\\''s.test.ts'",
   ));
+
+test("runCommand runs the file without a mode", () => {
+  expect(runCommand("vitest", "/w/test/a.test.ts", "/w")).toBe("npx vitest run test/a.test.ts");
+  expect(runCommand("node-test", "/w/a.test.mjs", "/w")).toBe("node --test a.test.mjs");
+  expect(runCommand("unknown", "/w/a.test.ts", "/w")).toBe("<your test command>");
+});

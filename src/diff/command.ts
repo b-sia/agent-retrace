@@ -47,6 +47,20 @@ function shellQuote(word: string): string {
 }
 
 /**
+ * Builds the command that runs one test file.
+ *
+ * @param runner - The test runner.
+ * @param testFile - Absolute path of the test file, when known.
+ * @param cwd - Directory the command is run from.
+ * @returns The command, or "<your test command>" when the runner or file is unknown.
+ */
+export function runCommand(runner: Runner, testFile: string | undefined, cwd: string): string {
+  if (runner === "unknown" || testFile === undefined) return "<your test command>";
+  const file = shellQuote(relative(cwd, testFile).split(sep).join("/"));
+  return runner === "vitest" ? `npx vitest run ${file}` : `node --test ${file}`;
+}
+
+/**
  * Builds the command that re-runs one test file in update mode.
  *
  * @param runner - The test runner.
@@ -55,7 +69,5 @@ function shellQuote(word: string): string {
  * @returns The command.
  */
 export function rerecordCommand(runner: Runner, testFile: string | undefined, cwd: string): string {
-  if (runner === "unknown" || testFile === undefined) return `${UPDATE} <your test command>`;
-  const file = shellQuote(relative(cwd, testFile).split(sep).join("/"));
-  return runner === "vitest" ? `${UPDATE} npx vitest run ${file}` : `${UPDATE} node --test ${file}`;
+  return `${UPDATE} ${runCommand(runner, testFile, cwd)}`;
 }

@@ -653,7 +653,7 @@ test("installInterceptor is idempotent", () => { installInterceptor(); installIn
 
 `recordTool`: with no session, call `fn` directly. With a session, `decideTool(name, toJsonArgs(args))`. On `replay`, return the stored value, or throw an `Error` with `name`/`message` restored. On `fail`, throw the error. On `live`, run `fn`, then `commit` a `return` outcome (JSON round-tripped through `toJsonArgs([value])[0]`) or a `throw` outcome, and rethrow. The wrapper is always async: the README must state this.
 
-- [ ] **Step 1: Write failing tests** (plain `fetch` against `startServer` as provider, `options.dir` set to a tmp dir)
+- [x] **Step 1: Write failing tests** (plain `fetch` against `startServer` as provider, `options.dir` set to a tmp dir)
 
 ```ts
 test("auto records on first run, replays on second without network", async () => {
@@ -710,10 +710,10 @@ test("Vercel-style second arg with AbortSignal is accepted", async () => {});
 
 Also add `test/integration/duplicate-module.test.ts`: import `../../src/index.js?copy=2` as `copyB`, run `copyB.replay(...)` doing a provider `fetch`. Expect it to be recorded, which proves the interceptor installed by copy A found copy B's session (Review Focus 1).
 
-- [ ] **Step 2:** Run `npx vitest run test/integration`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement `src/replay.ts` and update `src/index.ts`.
-- [ ] **Step 4:** Run `npm test && npm run typecheck && npm run lint`. Expected: PASS.
-- [ ] **Step 5: Commit** `feat: add replay() and recordTool() public API`
+- [x] **Step 2:** Run `npx vitest run test/integration`. Expected: the new tests FAIL.
+- [x] **Step 3:** Implement `src/replay.ts` and update `src/index.ts`.
+- [x] **Step 4:** Run `npm test && npm run typecheck && npm run lint`. Expected: PASS.
+- [x] **Step 5: Commit** `feat: add replay() and recordTool() public API`
 
 ---
 
