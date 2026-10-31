@@ -768,11 +768,11 @@ Cases:
 
 `secrets.test.ts`, run after recording with every SDK above (`setCookie: true`, prompt text containing the API key): the concatenated text of every file in `dir` matches none of `/sk-test-SECRET123456/`, `/authorization/i`, `/x-api-key/i`, `/set-cookie/i`.
 
-- [ ] **Step 1:** Write `fake-provider.ts` and the SDK tests.
-- [ ] **Step 2:** Run `npx vitest run test/sdk`. Expected: the first run surfaces real gaps (fake shape or interceptor). Fix the fake for shape errors. Fix `src/` for interceptor or format bugs, adding a unit test in the owning task's test file for each `src/` fix.
-- [ ] **Step 3:** Run `npm test`. Expected: all PASS.
-- [ ] **Step 4:** Read one recording of each API shape and check that it is readable in code review (SSE stored as events, not escaped strings). Fix the format if it is not.
-- [ ] **Step 5: Commit** `test: add SDK compatibility suite for OpenAI, Anthropic and Vercel AI SDK`
+- [x] **Step 1:** Write `fake-provider.ts` and the SDK tests.
+- [x] **Step 2:** Run `npx vitest run test/sdk`. Expected: the first run surfaces real gaps (fake shape or interceptor). Fix the fake for shape errors. Fix `src/` for interceptor or format bugs, adding a unit test in the owning task's test file for each `src/` fix.
+- [x] **Step 3:** Run `npm test`. Expected: all PASS.
+- [x] **Step 4:** Read one recording of each API shape and check that it is readable in code review (SSE stored as events, not escaped strings). Fix the format if it is not.
+- [x] **Step 5: Commit** `test: add SDK compatibility suite for OpenAI, Anthropic and Vercel AI SDK`
 
 ---
 
