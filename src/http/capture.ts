@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
 import type { AgentRetraceConfig } from "../config.js";
 import {
+  envSecrets,
   KEPT_RESPONSE_HEADERS,
   MATCHED_REQUEST_HEADERS,
   redactDeep,
@@ -26,9 +27,6 @@ export interface RawRequest {
   headers: Record<string, string>;
   body: Buffer | undefined;
 }
-
-/** Environment variables whose values are provider keys that may be echoed in a body. */
-const KEY_ENV_VARS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
 
 /**
  * Lowercases the names of a header record. When two names differ only in
@@ -76,11 +74,7 @@ export function captureRequest(
   config: AgentRetraceConfig,
 ): { request: RecordedRequest; secrets: string[] } {
   const headers = lowercaseKeys(input.headers);
-  const secrets = secretsFromHeaders(headers);
-  for (const name of KEY_ENV_VARS) {
-    const value = process.env[name];
-    if (value) secrets.push(value);
-  }
+  const secrets = [...secretsFromHeaders(headers), ...envSecrets()];
   const request: RecordedRequest = {
     method: input.method.toUpperCase(),
     url: `${input.origin}${input.path}`,

@@ -32,6 +32,24 @@ export const SECRET_HEADERS: readonly string[] = Object.freeze([
 /** What redacted text and scrubbed secrets are replaced with. */
 export const REDACTED = "[REDACTED]";
 
+/** Environment variables whose values are provider keys that may be echoed in a body or tool step. */
+const KEY_ENV_VARS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"];
+
+/**
+ * Reads the provider keys set in the environment, so they can be scrubbed
+ * wherever a prompt or tool echoes them.
+ *
+ * @returns The non-empty key values.
+ */
+export function envSecrets(): string[] {
+  const secrets: string[] = [];
+  for (const name of KEY_ENV_VARS) {
+    const value = process.env[name];
+    if (value) secrets.push(value);
+  }
+  return secrets;
+}
+
 // Shorter values ("abc", "1") would turn up by chance in ordinary text, so
 // scrubbing them would mangle recordings without protecting anything.
 const MIN_SECRET_LENGTH = 8;

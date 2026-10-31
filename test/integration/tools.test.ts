@@ -198,3 +198,41 @@ test("in update mode a tool that calls the model is re-recorded as one step", as
   expect(steps.map((s) => s.type)).toEqual(["tool"]);
   expect(steps[0]?.type === "tool" && steps[0].args).toEqual(["b"]);
 });
+
+test("redaction rules apply to tool args, results and error messages", async () => {
+  configure({ providerHosts: [server.host], redact: [/ORDER-\d+/] });
+  const lookup = recordTool("lookup", async (id: string) => ({ id, note: `found ${id}` }));
+  const cancel = recordTool("cancel", async (id: string) => {
+    throw new Error(`cannot cancel ${id}`);
+  });
+  await replay(
+    "t12",
+    async () => {
+      await lookup("ORDER-123");
+      await cancel("ORDER-123").catch(() => undefined);
+    },
+    { dir },
+  );
+  const file = readFileSync(join(dir, "t12.json"), "utf8");
+  expect(file).not.toContain("ORDER-123");
+  expect(file).toContain("[REDACTED]");
+});
+
+test("tool args that differ only in redacted text replay as the same call", async () => {
+  configure({ providerHosts: [server.host], redact: [/ORDER-\d+/] });
+  const impl = vi.fn(async (id: string) => id.length);
+  const lookup = recordTool("lookup", impl);
+  await replay("t13", () => lookup("ORDER-123"), { dir });
+  expect(await replay("t13", () => lookup("ORDER-999"), { dir })).toBe(9);
+  expect(impl).toHaveBeenCalledTimes(1);
+});
+
+test("a provider key from the environment never reaches a tool step", async () => {
+  vi.stubEnv("OPENAI_API_KEY", "sk-env-KEY-0123456789");
+  const config = recordTool("config", async (k: string) => ({
+    key: process.env.OPENAI_API_KEY,
+    k,
+  }));
+  await replay("t14", () => config("sk-env-KEY-0123456789"), { dir });
+  expect(readFileSync(join(dir, "t14.json"), "utf8")).not.toContain("sk-env-KEY-0123456789");
+});

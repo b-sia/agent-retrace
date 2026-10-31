@@ -7,7 +7,13 @@ import { getConfig, type Mode, resolveMode } from "./config.js";
 import { detectRunner, rerecordCommand, runCommand } from "./diff/command.js";
 import { RecordingNotFoundError, ReplayUsageError } from "./errors.js";
 import { installInterceptor } from "./http/interceptor.js";
-import { toJsonArgs, toJsonValue } from "./match/normalize.js";
+import {
+  envSecrets,
+  redactDeep,
+  scrubSecrets,
+  toJsonArgs,
+  toJsonValue,
+} from "./match/normalize.js";
 import type { JsonValue, ToolOutcome } from "./recording/format.js";
 import {
   callerTestFile,
@@ -131,12 +137,23 @@ export async function replay<T>(
 }
 
 /**
+ * Applies the user's redaction rules, then scrubs provider keys, as is done
+ * for provider requests, so a tool step never stores what a request would not.
+ *
+ * @param value - Tool arguments, a return value or an error message.
+ * @returns The cleaned value.
+ */
+function clean<T extends JsonValue>(value: T): T {
+  return scrubSecrets(redactDeep(value, getConfig().redact), envSecrets()) as T;
+}
+
+/**
  * Converts a tool's arguments to the JSON that is matched and stored.
  *
  * @param name - Tool name, for error messages.
  * @param args - The arguments the tool was called with.
  * @param pick - The `args` option, if given.
- * @returns The JSON arguments.
+ * @returns The JSON arguments, redacted.
  * @throws {ReplayUsageError} When an argument cannot be stored as JSON.
  */
 function jsonArgsOf<A extends unknown[]>(
@@ -144,9 +161,9 @@ function jsonArgsOf<A extends unknown[]>(
   args: A,
   pick: ((...args: A) => unknown[]) | undefined,
 ): JsonValue[] {
-  if (pick) return toJsonArgs(pick(...args));
+  if (pick) return clean(toJsonArgs(pick(...args)));
   try {
-    return toJsonArgs(args);
+    return clean(toJsonArgs(args));
   } catch (err) {
     if (!(err instanceof ReplayUsageError)) throw err;
     throw new ReplayUsageError(
@@ -160,12 +177,12 @@ function jsonArgsOf<A extends unknown[]>(
  * Describes how a tool call threw, for the recording.
  *
  * @param err - What the tool threw.
- * @returns A `throw` outcome.
+ * @returns A `throw` outcome, with the message redacted.
  */
 function throwOutcome(err: unknown): ToolOutcome {
   return err instanceof Error
-    ? { type: "throw", name: err.name, message: err.message }
-    : { type: "throw", name: "Error", message: String(err) };
+    ? { type: "throw", name: err.name, message: clean(err.message) }
+    : { type: "throw", name: "Error", message: clean(String(err)) };
 }
 
 /**
@@ -173,13 +190,13 @@ function throwOutcome(err: unknown): ToolOutcome {
  *
  * @param name - Tool name, for error messages.
  * @param value - The returned value.
- * @returns A `return` outcome; `undefined` is stored as no value.
+ * @returns A `return` outcome, with the value redacted; `undefined` is stored as no value.
  * @throws {ReplayUsageError} When the value cannot be stored as JSON.
  */
 function returnOutcome(name: string, value: unknown): ToolOutcome {
   if (value === undefined) return { type: "return" };
   try {
-    return { type: "return", value: toJsonValue(value, "result") };
+    return { type: "return", value: clean(toJsonValue(value, "result")) };
   } catch (err) {
     if (!(err instanceof ReplayUsageError)) throw err;
     throw new ReplayUsageError(
@@ -196,7 +213,8 @@ function returnOutcome(name: string, value: unknown): ToolOutcome {
  *
  * On replay the tool does not run: it returns the recorded value (a JSON
  * copy, so a `Date` comes back as its ISO string), or throws an `Error` with
- * the recorded `name` and `message`.
+ * the recorded `name` and `message`. Redaction rules apply to the stored
+ * arguments, value and message, so replay returns the redacted text.
  *
  * A tool that runs live is one step: the provider calls and wrapped tools it
  * calls itself go through unrecorded, because on replay the tool does not
