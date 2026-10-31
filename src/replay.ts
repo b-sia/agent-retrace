@@ -198,6 +198,10 @@ function returnOutcome(name: string, value: unknown): ToolOutcome {
  * copy, so a `Date` comes back as its ISO string), or throws an `Error` with
  * the recorded `name` and `message`.
  *
+ * A tool that runs live is one step: the provider calls and wrapped tools it
+ * calls itself go through unrecorded, because on replay the tool does not
+ * run and would not make them.
+ *
  * @param name - Tool name, shown in change reports and stored in the recording.
  * @param fn - The tool implementation.
  * @param options - Which arguments are matched and stored.
@@ -209,7 +213,8 @@ export function recordTool<A extends unknown[], R>(
   options: RecordToolOptions<A> = {},
 ): (...args: A) => Promise<Awaited<R>> {
   return async (...args: A): Promise<Awaited<R>> => {
-    const session = runtime().als.getStore();
+    const rt = runtime();
+    const session = rt.als.getStore();
     if (session === undefined) return await fn(...args);
     const jsonArgs = jsonArgsOf(name, args, options.args);
     const decision = session.decideTool(name, jsonArgs);
@@ -226,7 +231,8 @@ export function recordTool<A extends unknown[], R>(
     }
     let value: Awaited<R>;
     try {
-      value = await fn(...args);
+      // Cleared, not exited: `als.exit` is still experimental in Node 22.
+      value = await rt.als.run(undefined, () => fn(...args));
     } catch (err) {
       decision.commit({ type: "tool", name, args: jsonArgs, outcome: throwOutcome(err) });
       throw err;

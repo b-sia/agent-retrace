@@ -19,8 +19,12 @@ import type { Session } from "./session.js";
  * Shared state for the whole process.
  */
 export interface Runtime {
-  /** Carries the active replay session through async calls. */
-  als: AsyncLocalStorage<Session>;
+  /**
+   * Carries the active replay session through async calls. A live wrapped
+   * tool runs its body with the store cleared, so calls it makes are not
+   * steps of their own.
+   */
+  als: AsyncLocalStorage<Session | undefined>;
   /** Current configuration, replaced wholesale by `configure()`. */
   config: AgentRetraceConfig;
   /** Recording files used by a running `replay()`, to reject concurrent use. */

@@ -7,20 +7,43 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetConfig } from "../../src/config.js";
-import { ChangeDetectedError, ReplayUsageError, recordTool, replay } from "../../src/index.js";
+import {
+  ChangeDetectedError,
+  configure,
+  type Recording,
+  ReplayUsageError,
+  recordTool,
+  replay,
+} from "../../src/index.js";
+import { chat, echoHandler } from "../support/agent.js";
+import { startServer, type TestServer } from "../support/http-server.js";
 
+let server: TestServer;
 let dir: string;
 
 beforeEach(async () => {
   vi.stubEnv("AGENT_RETRACE_MODE", "auto");
+  server = await startServer(echoHandler);
+  configure({ providerHosts: [server.host] });
   dir = await mkdtemp(join(tmpdir(), "agent-retrace-tools-"));
 });
 
 afterEach(async () => {
   vi.unstubAllEnvs();
   resetConfig();
+  await server.close();
   await rm(dir, { recursive: true, force: true });
 });
+
+/**
+ * Reads the steps of a saved recording.
+ *
+ * @param name - Recording name.
+ * @returns Its steps.
+ */
+function stepsOf(name: string): Recording["steps"] {
+  return (JSON.parse(readFileSync(join(dir, `${name}.json`), "utf8")) as Recording).steps;
+}
 
 test("wrapped tool recorded, then replayed without running", async () => {
   const impl = vi.fn(async (q: string) => ({ hits: [q, q.length] }));
@@ -140,4 +163,38 @@ test("a rejected raw arg throws ReplayUsageError mentioning { args }", async () 
   expect(err).toBeInstanceOf(ReplayUsageError);
   expect(err.message).toContain("{ args }");
   expect(impl).not.toHaveBeenCalled();
+});
+
+test("a tool that calls the model is one step and replays without running", async () => {
+  const impl = vi.fn(async (text: string) => (await chat(server, text)).body);
+  const summarize = recordTool("summarize", impl);
+  const first = await replay("t9", () => summarize("hi"), { dir });
+  expect(stepsOf("t9").map((s) => s.type)).toEqual(["tool"]);
+  const second = await replay("t9", () => summarize("hi"), { dir });
+  expect(second).toEqual(first);
+  expect(impl).toHaveBeenCalledTimes(1);
+  expect(server.hits).toBe(1);
+});
+
+test("a wrapped tool called by a wrapped tool is recorded as the outer tool only", async () => {
+  const inner = vi.fn(async (q: string) => q.length);
+  const lookup = recordTool("lookup", inner);
+  const plan = recordTool("plan", async (q: string) => (await lookup(q)) * 2);
+  await replay("t10", () => plan("abc"), { dir });
+  expect(stepsOf("t10").map((s) => (s.type === "tool" ? s.name : s.type))).toEqual(["plan"]);
+  expect(await replay("t10", () => plan("abc"), { dir })).toBe(6);
+  expect(inner).toHaveBeenCalledTimes(1);
+});
+
+test("in update mode a tool that calls the model is re-recorded as one step", async () => {
+  const summarize = recordTool(
+    "summarize",
+    async (text: string) => (await chat(server, text)).body,
+  );
+  await replay("t11", () => summarize("a"), { dir });
+  vi.stubEnv("AGENT_RETRACE_MODE", "update");
+  await replay("t11", () => summarize("b"), { dir });
+  const steps = stepsOf("t11");
+  expect(steps.map((s) => s.type)).toEqual(["tool"]);
+  expect(steps[0]?.type === "tool" && steps[0].args).toEqual(["b"]);
 });
