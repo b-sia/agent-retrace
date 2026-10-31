@@ -210,6 +210,7 @@ function forwardAndRecord(
  * @param original - The dispatcher we wrapped.
  * @param opts - The request options.
  * @param handler - The handler undici passed to `dispatch`.
+ * @param session - The open session, told about credentials in the request.
  * @param decideLlm - Decides the request, from `session.reserveLlm()` taken when it was issued.
  * @param origin - Scheme, host and port of the request.
  */
@@ -217,6 +218,7 @@ async function handleInSession(
   original: Dispatcher,
   opts: Dispatcher.DispatchOptions,
   handler: object,
+  session: Session,
   decideLlm: ReturnType<Session["reserveLlm"]>,
   origin: string,
 ): Promise<void> {
@@ -237,6 +239,7 @@ async function handleInSession(
       },
       config,
     );
+    session.noteSecrets(secrets);
     const decision = decideLlm(request);
     if (decision.kind === "replay") {
       deliver = () => playResponse(sink, encodeResponse(decision.step.response));
@@ -304,7 +307,7 @@ function intercept(
   }
   // The sequence number is taken now, before reading the body takes any time.
   const decideLlm = session.reserveLlm();
-  void handleInSession(original, opts, handler, decideLlm, origin);
+  void handleInSession(original, opts, handler, session, decideLlm, origin);
   return true;
 }
 

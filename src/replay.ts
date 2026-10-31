@@ -139,12 +139,15 @@ export async function replay<T>(
 /**
  * Applies the user's redaction rules, then scrubs provider keys, as is done
  * for provider requests, so a tool step never stores what a request would not.
+ * The keys are those in the environment plus those the current replay has seen
+ * in provider request headers.
  *
  * @param value - Tool arguments, a return value or an error message.
  * @returns The cleaned value.
  */
 function clean<T extends JsonValue>(value: T): T {
-  return scrubSecrets(redactDeep(value, getConfig().redact), envSecrets()) as T;
+  const seen = runtime().als.getStore()?.secrets ?? [];
+  return scrubSecrets(redactDeep(value, getConfig().redact), [...seen, ...envSecrets()]) as T;
 }
 
 /**

@@ -8,7 +8,7 @@
 import type { AgentRetraceConfig } from "./config.js";
 import { type ChangeReport, renderChange } from "./diff/render.js";
 import { ChangeDetectedError, ProviderCallBlockedError, ReplayUsageError } from "./errors.js";
-import { llmMatchKey, toolMatchKey } from "./match/normalize.js";
+import { envSecrets, llmMatchKey, scrubSecrets, toolMatchKey } from "./match/normalize.js";
 import type {
   JsonValue,
   LlmStep,
@@ -84,6 +84,7 @@ export class Session {
   private firstMismatch: Mismatch | undefined;
   private switched = false;
   private isClosed = false;
+  private readonly seenSecrets = new Set<string>();
 
   /**
    * @param opts - Strategy, recording, and the functions the session needs.
@@ -102,6 +103,27 @@ export class Session {
    */
   get closed(): boolean {
     return this.isClosed;
+  }
+
+  /**
+   * Credentials seen in this replay's provider requests so far, such as an
+   * API key passed to an SDK client directly rather than through the
+   * environment. Tool steps are scrubbed of them too.
+   *
+   * @returns The secrets, in the order first seen.
+   */
+  get secrets(): readonly string[] {
+    return [...this.seenSecrets];
+  }
+
+  /**
+   * Remembers credentials found in a provider request, so they are scrubbed
+   * from tool steps and, when the recording is saved, from every step.
+   *
+   * @param secrets - Credentials taken from the request's headers.
+   */
+  noteSecrets(secrets: readonly string[]): void {
+    for (const secret of secrets) this.seenSecrets.add(secret);
   }
 
   /**
@@ -366,7 +388,13 @@ export class Session {
    * @returns The recording.
    */
   private recordingOf(steps: Step[]): Recording {
-    return { formatVersion: 1, name: this.opts.name, steps };
+    // A tool step stored before the request that revealed a key could not be
+    // scrubbed of it then; every key this replay saw is removed once more here.
+    const scrubbed = scrubSecrets(steps as unknown as JsonValue, [
+      ...this.seenSecrets,
+      ...envSecrets(),
+    ]);
+    return { formatVersion: 1, name: this.opts.name, steps: scrubbed as unknown as Step[] };
   }
 }
 

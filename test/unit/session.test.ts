@@ -420,3 +420,22 @@ test("decisions after finish are refused", async () => {
 test("exposes its name", () => {
   expect(session("record").s.name).toBe("demo");
 });
+
+test("secrets noted after a step was committed are scrubbed from the saved recording", async () => {
+  const { s, save } = session("record");
+  const step: ToolStep = {
+    type: "tool",
+    name: "t",
+    args: ["key sk-unit-SECRET999"],
+    outcome: { type: "return", value: "sk-unit-SECRET999" },
+  };
+  const d = s.decideTool("t", step.args);
+  if (d.kind !== "live") throw new Error(`expected live, got ${d.kind}`);
+  d.commit(step);
+  s.noteSecrets(["sk-unit-SECRET999"]);
+  expect(s.secrets).toEqual(["sk-unit-SECRET999"]);
+  await s.finish(undefined);
+  expect(save.mock.calls[0]?.[0].steps).toEqual([
+    { ...step, args: ["key [REDACTED]"], outcome: { type: "return", value: "[REDACTED]" } },
+  ]);
+});

@@ -399,3 +399,35 @@ test("a live tool that throws a non-Error throws the Error that replay throws", 
     expect(err.message).toBe("plain string");
   }
 });
+
+test("a key seen in a provider request header is scrubbed from later tool steps, which still replay", async () => {
+  // chat() sends "Bearer sk-test-SECRET123"; no key is set in the environment.
+  const impl = vi.fn(async (note: string) => `saw ${note}`);
+  const echo = recordTool("echo", impl);
+  const agent = async (): Promise<string> => {
+    await chat(server, "hi");
+    return echo("key sk-test-SECRET123");
+  };
+  // A live call returns what replay will (see "a live tool returns the redacted value that replay returns").
+  expect(await replay("t-secret", agent, { dir })).toBe("saw key [REDACTED]");
+  const text = readFileSync(join(dir, "t-secret.json"), "utf8");
+  expect(text).not.toContain("sk-test-SECRET123");
+  expect(stepsOf("t-secret")[1]).toMatchObject({ args: ["key [REDACTED]"] });
+
+  vi.stubEnv("AGENT_RETRACE_MODE", "replay");
+  expect(await replay("t-secret", agent, { dir })).toBe("saw key [REDACTED]");
+  expect(impl).toHaveBeenCalledTimes(1);
+});
+
+test("a tool step recorded before the request that reveals the key never stores it", async () => {
+  const echo = recordTool("echo", async (note: string) => `saw ${note}`);
+  await replay(
+    "t-secret-early",
+    async () => {
+      await echo("key sk-test-SECRET123");
+      await chat(server, "hi");
+    },
+    { dir },
+  );
+  expect(readFileSync(join(dir, "t-secret-early.json"), "utf8")).not.toContain("sk-test-SECRET123");
+});
