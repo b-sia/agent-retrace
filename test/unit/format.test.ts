@@ -40,6 +40,18 @@ const sample: Recording = {
       args: [],
       outcome: { type: "throw", name: "Error", message: "declined" },
     },
+    {
+      type: "tool",
+      name: "charge",
+      args: [],
+      outcome: {
+        type: "throw",
+        name: "HttpError",
+        message: "payment failed",
+        props: { status: 402, retryable: false, code: "card_declined", detail: null },
+        cause: { name: "RangeError", message: "card expired" },
+      },
+    },
   ],
 };
 
@@ -148,6 +160,18 @@ test.each([
   ],
   [
     '{"formatVersion":1,"name":"n","steps":[{"type":"llm","request":{"method":"POST","url":"u","headers":{}},"response":{"status":200,"headers":{},"events":[{"text":1}]}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"tool","name":"t","args":[],"outcome":{"type":"throw","name":"E","message":"m","props":[]}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"tool","name":"t","args":[],"outcome":{"type":"throw","name":"E","message":"m","props":{"a":{}}}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"tool","name":"t","args":[],"outcome":{"type":"throw","name":"E","message":"m","cause":"x"}}]}',
+  ],
+  [
+    '{"formatVersion":1,"name":"n","steps":[{"type":"tool","name":"t","args":[],"outcome":{"type":"throw","name":"E","message":"m","cause":{"name":"C"}}}]}',
   ],
 ])("rejects %s", (t) => expect(() => parseRecording(t, "f.json")).toThrow(RecordingFormatError));
 

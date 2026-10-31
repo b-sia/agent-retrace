@@ -44,10 +44,20 @@ export interface LlmStep {
   response: RecordedResponse;
 }
 
+/** An error a tool threw, as stored in a recording. */
+export interface RecordedError {
+  name: string;
+  message: string;
+  /** Own enumerable fields with primitive values, such as `code` or `status`. */
+  props?: { [k: string]: string | number | boolean | null };
+  /** The error's `cause`, when that is an Error too. */
+  cause?: RecordedError;
+}
+
 /** How a recorded tool call ended. */
 export type ToolOutcome =
   | { type: "return"; value?: JsonValue }
-  | { type: "throw"; name: string; message: string };
+  | ({ type: "throw" } & RecordedError);
 
 /** A recorded call to a wrapped tool. */
 export interface ToolStep {
@@ -238,6 +248,31 @@ function responsePayloadProblem(response: Record<string, unknown>): string | und
 }
 
 /**
+ * Checks the shape of a recorded error and of the causes nested in it.
+ *
+ * @param error - The parsed error object.
+ * @param what - What the error is, for the message, e.g. "a thrown outcome".
+ * @returns Why the error is invalid, or undefined when it is valid.
+ */
+function recordedErrorProblem(error: Record<string, unknown>, what: string): string | undefined {
+  if (typeof error.name !== "string" || typeof error.message !== "string") {
+    return `has ${what} without a string name and message`;
+  }
+  if (
+    error.props !== undefined &&
+    !(
+      isObject(error.props) &&
+      Object.values(error.props).every((v) => v === null || typeof v !== "object")
+    )
+  ) {
+    return `has ${what} whose props are not an object of strings, numbers, booleans and nulls`;
+  }
+  if (error.cause === undefined) return undefined;
+  if (!isObject(error.cause)) return `has ${what} whose cause is not an object`;
+  return recordedErrorProblem(error.cause, `${what} cause`);
+}
+
+/**
  * Checks the shape of one step, enough that later code can index into it
  * without crashing on a hand-edited file.
  *
@@ -267,11 +302,7 @@ function stepProblem(step: unknown): string | undefined {
     if (!Array.isArray(step.args)) return "has args that are not an array";
     if (!isObject(outcome)) return "has no outcome object";
     if (outcome.type === "return") return undefined;
-    if (outcome.type === "throw") {
-      return typeof outcome.name === "string" && typeof outcome.message === "string"
-        ? undefined
-        : "has a thrown outcome without a string name and message";
-    }
+    if (outcome.type === "throw") return recordedErrorProblem(outcome, "a thrown outcome");
     return `has unknown outcome type ${JSON.stringify(outcome.type)}`;
   }
   return `has unknown type ${JSON.stringify(step.type)}`;

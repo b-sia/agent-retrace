@@ -14,7 +14,7 @@ import {
   toJsonArgs,
   toJsonValue,
 } from "./match/normalize.js";
-import type { JsonValue, ToolOutcome } from "./recording/format.js";
+import type { JsonValue, RecordedError, ToolOutcome } from "./recording/format.js";
 import {
   callerTestFile,
   loadRecording,
@@ -173,16 +173,75 @@ function jsonArgsOf<A extends unknown[]>(
   }
 }
 
+/** A recorded call that returned. */
+type ReturnOutcome = Extract<ToolOutcome, { type: "return" }>;
+
+/** Built-in error classes that are rebuilt by name. Any other name gets a plain `Error`. */
+const ERROR_CLASSES: Record<string, ErrorConstructor> = {
+  Error,
+  EvalError,
+  RangeError,
+  ReferenceError,
+  SyntaxError,
+  TypeError,
+  URIError,
+};
+
+/** Error properties stored in their own fields, never in `props`. */
+const ERROR_KEYS = new Set(["name", "message", "stack", "cause"]);
+
 /**
- * Describes how a tool call threw, for the recording.
+ * Describes a thrown value for the recording: its name and message, its own
+ * enumerable fields with primitive values (`code`, `status`), and its cause
+ * when that is an Error. Fields holding objects are left out: they are often
+ * large, circular or carry credentials (an HTTP client's request config).
  *
  * @param err - What the tool threw.
- * @returns A `throw` outcome, with the message redacted.
+ * @param seen - Errors already described, so a cause cycle ends.
+ * @returns The error, with its message and fields redacted. A thrown value
+ *   that is not an Error becomes an `Error` with that value as message.
  */
-function throwOutcome(err: unknown): ToolOutcome {
-  return err instanceof Error
-    ? { type: "throw", name: err.name, message: clean(err.message) }
-    : { type: "throw", name: "Error", message: clean(String(err)) };
+function recordedError(err: unknown, seen: Set<Error> = new Set()): RecordedError {
+  if (!(err instanceof Error)) return { name: "Error", message: clean(String(err)) };
+  seen.add(err);
+  const recorded: RecordedError = { name: err.name, message: clean(err.message) };
+  const props: { [k: string]: string | number | boolean | null } = {};
+  for (const [key, value] of Object.entries(err)) {
+    if (ERROR_KEYS.has(key)) continue;
+    if (value === null || typeof value === "string" || typeof value === "boolean") {
+      props[key] = value;
+    } else if (typeof value === "number") {
+      props[key] = toJsonValue(value, key) as number | null;
+    }
+  }
+  if (Object.keys(props).length > 0) recorded.props = clean(props);
+  if (err.cause instanceof Error && !seen.has(err.cause)) {
+    recorded.cause = recordedError(err.cause, seen);
+  }
+  return recorded;
+}
+
+/**
+ * Builds the error a tool call throws from its recorded form. A built-in
+ * class (`TypeError`, `RangeError`, ...) is rebuilt as that class; any other
+ * keeps its name on a plain `Error`, so `instanceof` a custom class is false.
+ *
+ * @param recorded - The recorded error.
+ * @returns The error to throw.
+ */
+function rebuildError(recorded: RecordedError): Error {
+  const ErrorClass = Object.hasOwn(ERROR_CLASSES, recorded.name)
+    ? (ERROR_CLASSES[recorded.name] as ErrorConstructor)
+    : Error;
+  const error =
+    recorded.cause === undefined
+      ? new ErrorClass(recorded.message)
+      : new ErrorClass(recorded.message, { cause: rebuildError(recorded.cause) });
+  if (error.name !== recorded.name) error.name = recorded.name;
+  for (const [key, value] of Object.entries(recorded.props ?? {})) {
+    if (!ERROR_KEYS.has(key)) Object.assign(error, { [key]: value });
+  }
+  return error;
 }
 
 /**
@@ -193,7 +252,7 @@ function throwOutcome(err: unknown): ToolOutcome {
  * @returns A `return` outcome, with the value redacted; `undefined` is stored as no value.
  * @throws {ReplayUsageError} When the value cannot be stored as JSON.
  */
-function returnOutcome(name: string, value: unknown): ToolOutcome {
+function returnOutcome(name: string, value: unknown): ReturnOutcome {
   if (value === undefined) return { type: "return" };
   try {
     return { type: "return", value: clean(toJsonValue(value, "result")) };
@@ -211,10 +270,16 @@ function returnOutcome(name: string, value: unknown): ToolOutcome {
  * provider calls. Outside `replay()` the wrapper just calls the tool. The
  * wrapper is always async, even when the tool is not.
  *
- * On replay the tool does not run: it returns the recorded value (a JSON
- * copy, so a `Date` comes back as its ISO string), or throws an `Error` with
- * the recorded `name` and `message`. Redaction rules apply to the stored
- * arguments, value and message, so replay returns the redacted text.
+ * Inside `replay()` the caller gets what is stored, whether the tool ran or
+ * not, so a recording run behaves exactly as its replays will:
+ * - A result comes back as a redacted JSON copy: a `Date` becomes its ISO
+ *   string and a class instance a plain object.
+ * - An error is rebuilt from its name, redacted message, primitive fields
+ *   (`code`, `status`) and cause. Built-in classes such as `TypeError` keep
+ *   their class; others are a plain `Error` with the original `name`. When
+ *   the tool ran, the error keeps the tool's stack.
+ *
+ * Redaction rules apply to the stored arguments, value and error.
  *
  * A tool that runs live is one step: the provider calls and wrapped tools it
  * calls itself go through unrecorded, because on replay the tool does not
@@ -239,11 +304,7 @@ export function recordTool<A extends unknown[], R>(
     if (decision.kind === "fail") throw decision.error;
     if (decision.kind === "replay") {
       const { outcome } = decision.step;
-      if (outcome.type === "throw") {
-        const error = new Error(outcome.message);
-        error.name = outcome.name;
-        throw error;
-      }
+      if (outcome.type === "throw") throw rebuildError(outcome);
       // A copy, so a caller that mutates the result cannot change the recording.
       return structuredClone(outcome.value) as Awaited<R>;
     }
@@ -252,10 +313,18 @@ export function recordTool<A extends unknown[], R>(
       // Cleared, not exited: `als.exit` is still experimental in Node 22.
       value = await rt.als.run(undefined, () => fn(...args));
     } catch (err) {
-      decision.commit({ type: "tool", name, args: jsonArgs, outcome: throwOutcome(err) });
-      throw err;
+      const recorded = recordedError(err);
+      decision.commit({
+        type: "tool",
+        name,
+        args: jsonArgs,
+        outcome: { type: "throw", ...recorded },
+      });
+      const error = rebuildError(recorded);
+      if (err instanceof Error && typeof err.stack === "string") error.stack = clean(err.stack);
+      throw error;
     }
-    let outcome: ToolOutcome;
+    let outcome: ReturnOutcome;
     try {
       outcome = returnOutcome(name, value);
     } catch (err) {
@@ -263,6 +332,6 @@ export function recordTool<A extends unknown[], R>(
       throw err;
     }
     decision.commit({ type: "tool", name, args: jsonArgs, outcome });
-    return value;
+    return structuredClone(outcome.value) as Awaited<R>;
   };
 }

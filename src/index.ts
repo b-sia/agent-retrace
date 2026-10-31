@@ -10,6 +10,7 @@ export * from "./errors.js";
 export type {
   JsonValue,
   LlmStep,
+  RecordedError,
   RecordedRequest,
   RecordedResponse,
   Recording,
