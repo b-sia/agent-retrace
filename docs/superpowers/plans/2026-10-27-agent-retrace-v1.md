@@ -875,7 +875,7 @@ Tests in `agent.test.ts` (import from `"agent-retrace"`, the published entry):
   9. `node:test` usage.
   10. CLI.
   11. Recording format.
-  12. Limitations: fetch-based clients only (`node:http` provider calls throw), clients given their own undici dispatcher bypass interception, no clock/random freezing.
+  12. Limitations: fetch-based clients only (`node:http` provider calls throw), clients given their own undici dispatcher bypass interception, no clock/random freezing. Also: the full request URL, port included, is part of matching, so a local fake provider must listen on a fixed port (and be configured as `providerHosts: ["127.0.0.1:<port>"]`); one on a random port (`listen(0)`) produces recordings that stop matching on the next run.
   13. Comparison table.
   14. License.
 
