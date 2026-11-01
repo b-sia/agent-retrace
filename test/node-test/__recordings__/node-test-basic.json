@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "name": "node-test-basic",
+  "steps": [
+    {
+      "type": "llm",
+      "request": {
+        "method": "POST",
+        "url": "http://llm.node-test.invalid/v1/chat/completions",
+        "headers": {},
+        "body": {
+          "messages": [
+            {
+              "content": "hello",
+              "role": "user"
+            }
+          ],
+          "model": "m"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": {
+          "echo": "hello"
+        }
+      }
+    }
+  ]
+}

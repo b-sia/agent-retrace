@@ -784,15 +784,15 @@ Cases:
 **Interfaces:**
 - Consumes: the built package via self-reference, `import { replay, configure, recordTool } from "agent-retrace"`, which resolves through `exports` to `dist`.
 
-- [ ] **Step 1: Write the test** (plain JS, `node:test` + `node:assert/strict`, a local `http.createServer` provider configured as a provider host)
+- [x] **Step 1: Write the test** (plain JS, `node:test` + `node:assert/strict`, a local `http.createServer` provider configured as a provider host)
 
 Tests:
 - Records in auto mode, then replays with `AGENT_RETRACE_MODE=replay`, with server hits unchanged.
 - The default `__recordings__` dir is next to this `.mjs` file (proves `callerTestFile` works with `file://` frames).
 - A changed request rejects with a message containing `AGENT_RETRACE_MODE=update node --test test/node-test/replay.test.mjs`.
 
-- [ ] **Step 2:** Run `npm run test:node`. Expected: FAIL first only if something in `src/` is wrong. Fix it there with a unit test. Expected final: PASS.
-- [ ] **Step 3: Commit** `test: cover node:test runner against the built package`
+- [x] **Step 2:** Run `npm run test:node`. Expected: FAIL first only if something in `src/` is wrong. Fix it there with a unit test. Expected final: PASS.
+- [x] **Step 3: Commit** `test: cover node:test runner against the built package`
 
 ---
 
