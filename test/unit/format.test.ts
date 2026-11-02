@@ -8,6 +8,7 @@ import {
   type Recording,
   serializeRecording,
   stableStringify,
+  stableStringifyLine,
 } from "../../src/recording/format.js";
 
 const sample: Recording = {
@@ -96,6 +97,21 @@ test("integer-like keys sort as strings, not numerically first", () => {
   expect(stableStringify({ b: 1, "10": 2, "2": 3 })).toBe(
     `{\n  "10": 2,\n  "2": 3,\n  "b": 1\n}\n`,
   );
+});
+
+test("stableStringifyLine writes one line in the same key order", () => {
+  const value = {
+    zeta: [1, { b: null, a: "x\ny" }],
+    "10": true,
+    method: "POST",
+    empty: {},
+    none: [],
+  };
+  expect(stableStringifyLine(value)).toBe(
+    '{"method":"POST","10":true,"empty":{},"none":[],"zeta":[1,{"a":"x\\ny","b":null}]}',
+  );
+  expect(JSON.parse(stableStringifyLine(value))).toEqual(JSON.parse(stableStringify(value)));
+  expect(stableStringifyLine("s")).toBe('"s"');
 });
 
 test("circular structures throw", () => {

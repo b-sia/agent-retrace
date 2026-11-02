@@ -1,0 +1,332 @@
+{
+  "formatVersion": 1,
+  "name": "openai-chat-stream",
+  "steps": [
+    {
+      "type": "llm",
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {},
+        "body": {
+          "messages": [
+            {
+              "content": "You are a support agent.",
+              "role": "system"
+            },
+            {
+              "content": "My order arrived broken",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-x",
+          "stream": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "lookup_order",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "orderId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "orderId"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8",
+          "x-request-id": "req_1"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": null,
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "type": "function",
+                        "function": {
+                          "name": "lookup_order",
+                          "arguments": ""
+                        },
+                        "id": "call_A1",
+                        "index": 0
+                      }
+                    ]
+                  },
+                  "finish_reason": null,
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "{\"orderI"
+                        },
+                        "index": 0
+                      }
+                    ]
+                  },
+                  "finish_reason": null,
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "tool_calls": [
+                      {
+                        "function": {
+                          "arguments": "d\":\"A1\"}"
+                        },
+                        "index": 0
+                      }
+                    ]
+                  },
+                  "finish_reason": null,
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "tool_calls",
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "text": "[DONE]"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lookup_order",
+      "type": "tool",
+      "args": [
+        {
+          "orderId": "A1"
+        }
+      ],
+      "outcome": {
+        "type": "return",
+        "value": {
+          "status": "delivered",
+          "damaged": true,
+          "orderId": "A1"
+        }
+      }
+    },
+    {
+      "type": "llm",
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {},
+        "body": {
+          "messages": [
+            {
+              "content": "You are a support agent.",
+              "role": "system"
+            },
+            {
+              "content": "My order arrived broken",
+              "role": "user"
+            },
+            {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "lookup_order",
+                    "arguments": "{\"orderId\":\"A1\"}"
+                  },
+                  "id": "call_A1"
+                }
+              ]
+            },
+            {
+              "content": "{\"status\":\"delivered\",\"damaged\":true,\"orderId\":\"A1\"}",
+              "role": "tool",
+              "tool_call_id": "call_A1"
+            }
+          ],
+          "model": "gpt-x",
+          "stream": true,
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "lookup_order",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "orderId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "orderId"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8",
+          "x-request-id": "req_2"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "Sorry about that! I have issue"
+                  },
+                  "finish_reason": null,
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "d a full refund for order A1."
+                  },
+                  "finish_reason": null,
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0,
+                  "logprobs": null
+                }
+              ],
+              "created": 1700000000,
+              "id": "chatcmpl-fake",
+              "model": "gpt-x",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "text": "[DONE]"
+          }
+        ]
+      }
+    }
+  ]
+}

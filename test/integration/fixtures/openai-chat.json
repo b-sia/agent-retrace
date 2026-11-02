@@ -1,0 +1,192 @@
+{
+  "formatVersion": 1,
+  "name": "openai-chat",
+  "steps": [
+    {
+      "type": "llm",
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {},
+        "body": {
+          "messages": [
+            {
+              "content": "You are a support agent.",
+              "role": "system"
+            },
+            {
+              "content": "My order arrived broken",
+              "role": "user"
+            }
+          ],
+          "model": "gpt-x",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "lookup_order",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "orderId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "orderId"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "req_3"
+        },
+        "body": {
+          "choices": [
+            {
+              "message": {
+                "content": null,
+                "refusal": null,
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "lookup_order",
+                      "arguments": "{\"orderId\":\"A1\"}"
+                    },
+                    "id": "call_A1"
+                  }
+                ]
+              },
+              "finish_reason": "tool_calls",
+              "index": 0,
+              "logprobs": null
+            }
+          ],
+          "created": 1700000000,
+          "id": "chatcmpl-fake",
+          "model": "gpt-x",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 5,
+            "prompt_tokens": 10,
+            "total_tokens": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "lookup_order",
+      "type": "tool",
+      "args": [
+        {
+          "orderId": "A1"
+        }
+      ],
+      "outcome": {
+        "type": "return",
+        "value": {
+          "status": "delivered",
+          "damaged": true,
+          "orderId": "A1"
+        }
+      }
+    },
+    {
+      "type": "llm",
+      "request": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "headers": {},
+        "body": {
+          "messages": [
+            {
+              "content": "You are a support agent.",
+              "role": "system"
+            },
+            {
+              "content": "My order arrived broken",
+              "role": "user"
+            },
+            {
+              "content": null,
+              "role": "assistant",
+              "tool_calls": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "lookup_order",
+                    "arguments": "{\"orderId\":\"A1\"}"
+                  },
+                  "id": "call_A1"
+                }
+              ]
+            },
+            {
+              "content": "{\"status\":\"delivered\",\"damaged\":true,\"orderId\":\"A1\"}",
+              "role": "tool",
+              "tool_call_id": "call_A1"
+            }
+          ],
+          "model": "gpt-x",
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "lookup_order",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "orderId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "orderId"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "req_4"
+        },
+        "body": {
+          "choices": [
+            {
+              "message": {
+                "content": "Sorry about that! I have issued a full refund for order A1.",
+                "refusal": null,
+                "role": "assistant"
+              },
+              "finish_reason": "stop",
+              "index": 0,
+              "logprobs": null
+            }
+          ],
+          "created": 1700000000,
+          "id": "chatcmpl-fake",
+          "model": "gpt-x",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 5,
+            "prompt_tokens": 10,
+            "total_tokens": 15
+          }
+        }
+      }
+    }
+  ]
+}

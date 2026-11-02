@@ -134,10 +134,11 @@ function isSkipped(value: unknown): boolean {
  * @param value - The value to write.
  * @param indent - Indentation of the line the value starts on.
  * @param ancestors - Objects currently being written, to detect cycles.
+ * @param pretty - Whether to write one item per line, indented, or everything on one line.
  * @returns The JSON text.
  * @throws {TypeError} On a circular structure or a bigint, as `JSON.stringify` does.
  */
-function write(value: unknown, indent: string, ancestors: Set<object>): string {
+function write(value: unknown, indent: string, ancestors: Set<object>, pretty: boolean): string {
   if (value !== null && typeof value === "object" && "toJSON" in value) {
     const toJSON = (value as { toJSON: unknown }).toJSON;
     if (typeof toJSON === "function") value = toJSON.call(value);
@@ -150,21 +151,27 @@ function write(value: unknown, indent: string, ancestors: Set<object>): string {
   if (ancestors.has(value)) throw new TypeError("Converting circular structure to JSON");
   ancestors.add(value);
   const inner = `${indent}  `;
+  const open = pretty ? `\n${inner}` : "";
+  const separator = pretty ? `,\n${inner}` : ",";
+  const close = pretty ? `\n${indent}` : "";
   let out: string;
   if (Array.isArray(value)) {
     // `Array.from` visits holes in sparse arrays as undefined; `map` would skip
     // them and leave a bare "," in the output.
     const items = Array.from(value, (item) =>
-      isSkipped(item) ? "null" : write(item, inner, ancestors),
+      isSkipped(item) ? "null" : write(item, inner, ancestors, pretty),
     );
-    out = items.length === 0 ? "[]" : `[\n${inner}${items.join(`,\n${inner}`)}\n${indent}]`;
+    out = items.length === 0 ? "[]" : `[${open}${items.join(separator)}${close}]`;
   } else {
     const record = value as Record<string, unknown>;
     const entries = Object.keys(record)
       .filter((key) => !isSkipped(record[key]))
       .sort(compareKeys)
-      .map((key) => `${JSON.stringify(key)}: ${write(record[key], inner, ancestors)}`);
-    out = entries.length === 0 ? "{}" : `{\n${inner}${entries.join(`,\n${inner}`)}\n${indent}}`;
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}${pretty ? ": " : ":"}${write(record[key], inner, ancestors, pretty)}`,
+      );
+    out = entries.length === 0 ? "{}" : `{${open}${entries.join(separator)}${close}}`;
   }
   ancestors.delete(value);
   return out;
@@ -185,7 +192,20 @@ function write(value: unknown, indent: string, ancestors: Set<object>): string {
  * @throws {TypeError} On a circular structure or a bigint.
  */
 export function stableStringify(value: unknown): string {
-  return `${write(value, "", new Set())}\n`;
+  return `${write(value, "", new Set(), true)}\n`;
+}
+
+/**
+ * Serializes a value on one line, without whitespace, in the same stable key
+ * order as {@link stableStringify}. For summaries that show a value the way
+ * its recording file orders it.
+ *
+ * @param value - Any JSON-compatible value.
+ * @returns The JSON text, with no trailing newline.
+ * @throws {TypeError} On a circular structure or a bigint.
+ */
+export function stableStringifyLine(value: unknown): string {
+  return write(value, "", new Set(), false);
 }
 
 /**

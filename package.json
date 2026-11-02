@@ -14,6 +14,9 @@
       "default": "./dist/index.js"
     }
   },
+  "bin": {
+    "agent-retrace": "./dist/cli.js"
+  },
   "files": [
     "dist"
   ],

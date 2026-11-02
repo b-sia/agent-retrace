@@ -66,7 +66,7 @@ function asString(value: JsonValue | undefined): string | undefined {
  * @param text - Any text.
  * @returns The one-line text.
  */
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   return text.replace(/\r?\n/g, "\\n");
 }
 
@@ -130,7 +130,7 @@ function compactArgs(args: JsonValue | undefined): string {
  * @param args - Its arguments.
  * @returns The line.
  */
-function toolCallLine(name: JsonValue | undefined, args: JsonValue | undefined): string {
+export function toolCallLine(name: JsonValue | undefined, args: JsonValue | undefined): string {
   return `assistant -> tool_call ${asString(name) ?? "?"}(${oneLine(compactArgs(args))})`;
 }
 

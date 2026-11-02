@@ -7,6 +7,7 @@
       "**",
       "!**/dist",
       "!**/__recordings__",
+      "!test/integration/fixtures",
       "!docs/demo",
       "!docs/superpowers",
       "!.superpowers"

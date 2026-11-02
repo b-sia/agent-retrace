@@ -822,12 +822,12 @@ refund-damaged-order  (9 steps, format v1)
 - Tool outcome: the `stableStringify`'d value on one line, truncated, or `throws Name: message`.
 - Exit codes: 0 ok; 1 for an unreadable or invalid file (print the `RecordingFormatError` message); 2 for usage (`Usage: agent-retrace inspect <file>`, also for `--help` with exit 0). Parse arguments with `node:util` `parseArgs`.
 
-- [ ] **Step 1: Write failing tests** using a fixture recording from Task 9 copied into `test/integration/fixtures/`: `formatTimeline` output contains `" 1  LLM   POST"` and `"< assistant"`; `main(["inspect", fixture])` returns 0; a missing file returns 1; `main([])` returns 2; running `node dist/cli.js inspect <fixture>` via `execFile` after build exits 0.
-- [ ] **Step 2:** Run `npx vitest run test/integration/cli.test.ts`. Expected: FAIL.
-- [ ] **Step 3:** Implement.
-- [ ] **Step 4:** Re-run, plus `npm run build && node dist/cli.js inspect test/integration/fixtures/<file>`. Expected: PASS, and the output looks right in a real terminal.
-- [ ] **Step 5: Learning note** `docs/learning/cli.md`: `process.argv`, `parseArgs`, exit codes, shebang and npm `bin` symlinks, the "is main module" check compared with Python's `if __name__ == "__main__"`.
-- [ ] **Step 6: Commit** `feat: add agent-retrace inspect CLI`
+- [x] **Step 1: Write failing tests** using a fixture recording from Task 9 copied into `test/integration/fixtures/`: `formatTimeline` output contains `" 1  LLM   POST"` and `"< assistant"`; `main(["inspect", fixture])` returns 0; a missing file returns 1; `main([])` returns 2; running `node dist/cli.js inspect <fixture>` via `execFile` after build exits 0.
+- [x] **Step 2:** Run `npx vitest run test/integration/cli.test.ts`. Expected: FAIL.
+- [x] **Step 3:** Implement.
+- [x] **Step 4:** Re-run, plus `npm run build && node dist/cli.js inspect test/integration/fixtures/<file>`. Expected: PASS, and the output looks right in a real terminal.
+- [x] **Step 5: Learning note** `docs/learning/cli.md`: `process.argv`, `parseArgs`, exit codes, shebang and npm `bin` symlinks, the "is main module" check compared with Python's `if __name__ == "__main__"`.
+- [x] **Step 6: Commit** `feat: add agent-retrace inspect CLI`
 
 ---
 
