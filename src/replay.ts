@@ -14,7 +14,12 @@ import {
   toJsonArgs,
   toJsonValue,
 } from "./match/normalize.js";
-import type { JsonValue, RecordedError, ToolOutcome } from "./recording/format.js";
+import {
+  type JsonValue,
+  type RecordedError,
+  stableStringifyLine,
+  type ToolOutcome,
+} from "./recording/format.js";
 import {
   callerTestFile,
   loadRecording,
@@ -248,6 +253,20 @@ function rebuildError(recorded: RecordedError): Error {
 }
 
 /**
+ * Returns a fresh copy of a value exactly as a replay reads it back from the
+ * recording file: written in the file's key order, then parsed. A recording
+ * run hands the caller this copy, so its objects have the same key order as
+ * on replay, and an agent that serializes a tool result sends the model the
+ * same text on both runs.
+ *
+ * @param value - A JSON-compatible value about to be stored.
+ * @returns The copy a replay would return.
+ */
+function asStored<T>(value: T): T {
+  return JSON.parse(stableStringifyLine(value)) as T;
+}
+
+/**
  * Describes what a tool call returned, for the recording.
  *
  * @param name - Tool name, for error messages.
@@ -276,7 +295,8 @@ function returnOutcome(name: string, value: unknown): ReturnOutcome {
  * Inside `replay()` the caller gets what is stored, whether the tool ran or
  * not, so a recording run behaves exactly as its replays will:
  * - A result comes back as a redacted JSON copy: a `Date` becomes its ISO
- *   string and a class instance a plain object.
+ *   string, a class instance a plain object, and object keys come in the
+ *   order the recording file stores them.
  * - An error is rebuilt from its name, redacted message, primitive fields
  *   (`code`, `status`) and cause. Built-in classes such as `TypeError` keep
  *   their class; others are a plain `Error` with the original `name`. When
@@ -323,7 +343,7 @@ export function recordTool<A extends unknown[], R>(
         args: jsonArgs,
         outcome: { type: "throw", ...recorded },
       });
-      const error = rebuildError(recorded);
+      const error = rebuildError(asStored(recorded));
       if (err instanceof Error && typeof err.stack === "string") error.stack = clean(err.stack);
       throw error;
     }
@@ -335,6 +355,9 @@ export function recordTool<A extends unknown[], R>(
       throw err;
     }
     decision.commit({ type: "tool", name, args: jsonArgs, outcome });
-    return structuredClone(outcome.value) as Awaited<R>;
+    // Not `structuredClone`: that keeps the tool's key order, which the
+    // recording file does not, so the caller would see a different object
+    // here than on every replay.
+    return (outcome.value === undefined ? undefined : asStored(outcome.value)) as Awaited<R>;
   };
 }

@@ -285,6 +285,30 @@ test("a live tool returns the same JSON copy that replay returns", async () => {
   expect(replayed).toEqual(live);
 });
 
+test("a live tool returns its keys in the order replay returns them", async () => {
+  // Agents often send `JSON.stringify(result)` back to the model, so a key
+  // order that differs between recording and replay changes the next request.
+  // `toEqual` ignores key order; comparing the JSON text does not.
+  const lookup = recordTool("lookup", async () => ({
+    id: "B2",
+    status: "shipped",
+    carrier: "UPS",
+    lines: [{ sku: "W-1", qty: 1, name: "Throw" }],
+    "10": "ten",
+    "2": "two",
+  }));
+  const [live, replayed] = await recordThenReplay("t-key-order", () => lookup());
+  expect(JSON.stringify(live)).toBe(JSON.stringify(replayed));
+});
+
+test("a live tool error has its fields in the order replay gives them", async () => {
+  const fetchPage = recordTool("fetchPage", async () => {
+    throw Object.assign(new Error("rate limited"), { code: "E_RATE", status: 429 });
+  });
+  const [live, replayed] = await recordThenReplay("t-err-key-order", () => thrown(fetchPage));
+  expect(Object.keys(live)).toEqual(Object.keys(replayed));
+});
+
 test("a live tool returns the redacted value that replay returns", async () => {
   configure({ providerHosts: [server.host], redact: [/ORDER-\d+/] });
   const lookup = recordTool("lookup", async () => ({ note: "found ORDER-123" }));
