@@ -10,6 +10,7 @@ import pc from "picocolors";
 import { removeIgnoredPaths } from "../match/normalize.js";
 import type { JsonValue, RecordedRequest, Step } from "../recording/format.js";
 import { stableStringify } from "../recording/format.js";
+import type { Colors } from "../terminal.js";
 import { toSemantic } from "./semantic.js";
 
 /** Everything needed to explain one mismatch. */
@@ -40,8 +41,6 @@ export interface RenderOptions {
   /** Directory the recording path is shown relative to. Defaults to `process.cwd()`. */
   cwd?: string;
 }
-
-type Colors = ReturnType<typeof pc.createColors>;
 
 // Unchanged lines kept on each side of a change in a line diff.
 const CONTEXT = 3;

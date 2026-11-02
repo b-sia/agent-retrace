@@ -4,7 +4,9 @@
  * parameters). Pure, no I/O. Never throws: a body that does not have the
  * expected shape yields empty parts, and the renderer falls back to a raw diff.
  */
-import type { JsonValue, RecordedRequest } from "../recording/format.js";
+import type { RecordedRequest } from "../recording/format.js";
+import { asArray, asString, isObject, type JsonObject, type JsonValue } from "../recording/json.js";
+import { oneLine } from "../terminal.js";
 
 /** The provider APIs the semantic view understands. */
 export type ApiShape = "openai-chat" | "openai-responses" | "anthropic-messages" | "unknown";
@@ -25,50 +27,8 @@ export interface SemanticRequest {
   params: Record<string, JsonValue>;
 }
 
-type JsonObject = { [k: string]: JsonValue };
-
 // Body fields that have their own section, so they are not params.
 const NON_PARAMS = new Set(["model", "messages", "input", "instructions", "system", "tools"]);
-
-/**
- * Reports whether a JSON value is an object (not null, not an array).
- *
- * @param value - Any JSON value.
- * @returns True for objects.
- */
-function isObject(value: JsonValue | undefined): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Returns a value as an array, or an empty array when it is not one.
- *
- * @param value - Any JSON value.
- * @returns The array.
- */
-function asArray(value: JsonValue | undefined): JsonValue[] {
-  return Array.isArray(value) ? value : [];
-}
-
-/**
- * Returns a value when it is a string.
- *
- * @param value - Any JSON value.
- * @returns The string, or undefined.
- */
-function asString(value: JsonValue | undefined): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-/**
- * Makes text fit on one line by writing newlines as the two characters `\n`.
- *
- * @param text - Any text.
- * @returns The one-line text.
- */
-export function oneLine(text: string): string {
-  return text.replace(/\r?\n/g, "\\n");
-}
 
 /**
  * Flattens message content to text. A string is itself; an array of parts

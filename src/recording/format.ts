@@ -3,12 +3,12 @@
  * parsing. Pure, no I/O.
  */
 import { RecordingFormatError } from "../errors.js";
+import { isObject, type JsonValue } from "./json.js";
+
+export type { JsonValue } from "./json.js";
 
 /** Format version written by this release. */
 export const FORMAT_VERSION = 1;
-
-/** Any value that survives a JSON round trip unchanged. */
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
 
 /** An HTTP request as stored in a recording. Auth headers are never stored. */
 export interface RecordedRequest {
@@ -216,16 +216,6 @@ export function stableStringifyLine(value: unknown): string {
  */
 export function serializeRecording(r: Recording): string {
   return stableStringify(r);
-}
-
-/**
- * Reports whether a value is a plain JSON object (not null, not an array).
- *
- * @param value - Any parsed JSON value.
- * @returns True for objects.
- */
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

@@ -10,10 +10,9 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import pc from "picocolors";
-import { oneLine, toolCallLine, toSemantic } from "./diff/semantic.js";
+import { toolCallLine, toSemantic } from "./diff/semantic.js";
 import { RecordingFormatError } from "./errors.js";
 import {
-  type JsonValue,
   type LlmStep,
   parseRecording,
   type RecordedError,
@@ -22,15 +21,14 @@ import {
   type Step,
   stableStringifyLine,
 } from "./recording/format.js";
+import { asArray, asString, isObject, type JsonValue } from "./recording/json.js";
+import { type Colors, oneLine } from "./terminal.js";
 
 /** Options for {@link formatTimeline}. */
 export interface TimelineOptions {
   /** Whether to emit ANSI colors. Defaults to whether the terminal supports them. */
   color?: boolean;
 }
-
-type Colors = ReturnType<typeof pc.createColors>;
-type JsonObject = { [k: string]: JsonValue };
 
 /** What an assistant answered: its text and the tools it asked for. */
 interface Answer {
@@ -51,36 +49,6 @@ Exit codes: 0 ok, 1 unreadable or invalid file, 2 bad usage.
 const MAX_SUMMARY = 100;
 // Detail lines sit under the step's label.
 const DETAIL_INDENT = " ".repeat(8);
-
-/**
- * Reports whether a JSON value is an object (not null, not an array).
- *
- * @param value - Any JSON value.
- * @returns True for objects.
- */
-function isObject(value: JsonValue | undefined): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Returns a value as an array, or an empty array when it is not one.
- *
- * @param value - Any JSON value.
- * @returns The array.
- */
-function asArray(value: JsonValue | undefined): JsonValue[] {
-  return Array.isArray(value) ? value : [];
-}
-
-/**
- * Returns a value when it is a string, or an empty string.
- *
- * @param value - Any JSON value.
- * @returns The string.
- */
-function str(value: JsonValue | undefined): string {
-  return typeof value === "string" ? value : "";
-}
 
 /**
  * Shortens text to {@link MAX_SUMMARY} characters, ending in "...". Counts
@@ -107,7 +75,7 @@ function chatAnswer(message: JsonValue | undefined): Answer {
     const fn = isObject(call) && isObject(call.function) ? call.function : {};
     return { name: fn.name, args: fn.arguments };
   });
-  return { text: str(m.content), calls };
+  return { text: asString(m.content) ?? "", calls };
 }
 
 /**
@@ -123,15 +91,15 @@ function chatStreamAnswer(events: SseEvent[]): Answer {
   for (const { data } of events) {
     const choice = isObject(data) ? asArray(data.choices)[0] : undefined;
     const delta = isObject(choice) && isObject(choice.delta) ? choice.delta : {};
-    text += str(delta.content);
+    text += asString(delta.content) ?? "";
     for (const call of asArray(delta.tool_calls)) {
       if (!isObject(call)) continue;
       const index = typeof call.index === "number" ? call.index : calls.length;
       const slot = calls[index] ?? { name: "", args: "" };
       calls[index] = slot;
       const fn = isObject(call.function) ? call.function : {};
-      slot.name += str(fn.name);
-      slot.args += str(fn.arguments);
+      slot.name += asString(fn.name) ?? "";
+      slot.args += asString(fn.arguments) ?? "";
     }
   }
   // A sparse array (an index never sent) would leave holes; skip them.
@@ -150,7 +118,7 @@ function responsesAnswer(output: JsonValue[]): Answer {
     if (!isObject(item)) continue;
     if (item.type === "message") {
       for (const part of asArray(item.content)) {
-        if (isObject(part) && part.type === "output_text") answer.text += str(part.text);
+        if (isObject(part) && part.type === "output_text") answer.text += asString(part.text) ?? "";
       }
     } else if (item.type === "function_call") {
       answer.calls.push({ name: item.name, args: item.arguments });
@@ -177,7 +145,7 @@ function responsesStreamAnswer(events: SseEvent[]): Answer {
   if (done.length > 0) return responsesAnswer(done);
   const text = data
     .filter((d) => d.type === "response.output_text.delta")
-    .map((d) => str(d.delta))
+    .map((d) => asString(d.delta) ?? "")
     .join("");
   return { text, calls: [] };
 }
@@ -192,7 +160,7 @@ function anthropicAnswer(content: JsonValue[]): Answer {
   const answer: Answer = { text: "", calls: [] };
   for (const block of content) {
     if (!isObject(block)) continue;
-    if (block.type === "text") answer.text += str(block.text);
+    if (block.type === "text") answer.text += asString(block.text) ?? "";
     if (block.type === "tool_use") answer.calls.push({ name: block.name, args: block.input });
   }
   return answer;
@@ -213,11 +181,15 @@ function anthropicStreamAnswer(events: SseEvent[]): Answer {
     if (data.type === "content_block_start" && isObject(data.content_block)) {
       const block = data.content_block;
       // A tool_use block starts with an empty `input` that the deltas fill in.
-      blocks[data.index] = { type: str(block.type), name: block.name, text: str(block.text) };
+      blocks[data.index] = {
+        type: asString(block.type) ?? "",
+        name: block.name,
+        text: asString(block.text) ?? "",
+      };
     } else if (data.type === "content_block_delta" && isObject(data.delta)) {
       const block = blocks[data.index];
       if (block === undefined) continue;
-      block.text += str(data.delta.text) + str(data.delta.partial_json);
+      block.text += (asString(data.delta.text) ?? "") + (asString(data.delta.partial_json) ?? "");
     }
   }
   const answer: Answer = { text: "", calls: [] };
