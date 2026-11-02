@@ -239,6 +239,22 @@ test.each([
   expect(toSemantic(req).messages).toEqual(['assistant -> tool_call f({"a":{"c":3,"d":2},"b":1})']),
 );
 
+test.each([
+  ['{"query":"x","type":"web"}', 'search({"type":"web","query":"x"})'],
+  ["", "search({})"],
+  [" ", "search({})"],
+])("tool call arguments %j are written as the recording file orders them", (args, shown) =>
+  expect(
+    toSemantic(
+      post("https://api.openai.com/v1/chat/completions", {
+        messages: [
+          { role: "assistant", tool_calls: [{ function: { name: "search", arguments: args } }] },
+        ],
+      }),
+    ).messages,
+  ).toEqual([`assistant -> tool_call ${shown}`]),
+);
+
 test("anthropic: system blocks are joined with newlines", () =>
   expect(
     toSemantic(

@@ -4,7 +4,7 @@
  * parameters). Pure, no I/O. Never throws: a body that does not have the
  * expected shape yields empty parts, and the renderer falls back to a raw diff.
  */
-import type { RecordedRequest } from "../recording/format.js";
+import { type RecordedRequest, stableStringifyLine } from "../recording/format.js";
 import { asArray, asString, isObject, type JsonObject, type JsonValue } from "../recording/json.js";
 import { oneLine } from "../terminal.js";
 
@@ -53,31 +53,20 @@ function contentText(content: JsonValue | undefined, separator = " "): string {
 }
 
 /**
- * Copies a JSON value with every object's keys sorted by code unit, so two
- * values that differ only in key order are written identically.
- *
- * @param value - Any JSON value.
- * @returns The sorted copy.
- */
-function sortKeys(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (!isObject(value)) return value;
-  const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return Object.fromEntries(entries.map(([k, v]) => [k, sortKeys(v)]));
-}
-
-/**
- * Renders tool call arguments compactly, with sorted keys. Arguments that are
- * a JSON string (OpenAI) are parsed and re-written without whitespace;
- * anything that does not parse is shown as sent.
+ * Renders tool call arguments compactly, in the key order of the recording
+ * file ({@link stableStringifyLine}), so a call reads the same here as the
+ * tool step that runs it. Arguments that are a JSON string (OpenAI) are
+ * parsed and re-written without whitespace; anything that does not parse is
+ * shown as sent, and no arguments at all as `{}`.
  *
  * @param args - The arguments, as a JSON string or a JSON value.
  * @returns The compact text.
  */
 function compactArgs(args: JsonValue | undefined): string {
-  if (typeof args !== "string") return JSON.stringify(sortKeys(args ?? {}));
+  if (typeof args !== "string") return stableStringifyLine(args ?? {});
+  if (args.trim() === "") return "{}";
   try {
-    return JSON.stringify(sortKeys(JSON.parse(args)));
+    return stableStringifyLine(JSON.parse(args));
   } catch {
     return args;
   }
