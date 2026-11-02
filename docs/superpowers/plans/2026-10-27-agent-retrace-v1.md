@@ -838,7 +838,7 @@ refund-damaged-order  (9 steps, format v1)
 - Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Produces: `runSupportAgent(message: string, opts?: { systemPrompt?: string; client?: OpenAI }): Promise<{ action: "refund" | "replace" | "escalate" | "answer"; reply: string }>`, which uses the official `openai` SDK Chat Completions with function tools, loops until there is no tool call (max 6 turns), and has `DEFAULT_SYSTEM_PROMPT` exported.
+- Produces: `runSupportAgent(message: string, opts?: { systemPrompt?: string; client?: Anthropic }): Promise<{ action: "refund" | "replace" | "escalate" | "answer"; reply: string }>`, which uses the official `@anthropic-ai/sdk` Messages API with client tools and a structured-output final answer, loops until there is no tool call (max 6 turns), and has `DEFAULT_SYSTEM_PROMPT` exported. (Changed from the `openai` SDK on 2026-11-02: the owner has a Claude API key, not an OpenAI one.)
 - `tools.ts`: `lookupOrder`, `issueRefund` and `searchPolicies`, each exported already wrapped: `export const lookupOrder = recordTool("lookup_order", lookupOrderImpl)`. The impls read an in-memory fake order DB.
 
 Tests in `agent.test.ts` (import from `"agent-retrace"`, the published entry):
@@ -846,13 +846,13 @@ Tests in `agent.test.ts` (import from `"agent-retrace"`, the published entry):
 2. `where-is-my-order`: gives `action === "answer"`.
 3. `system prompt change is reported`: in replay mode, `runSupportAgent("My order A1 arrived broken", { systemPrompt: DEFAULT_SYSTEM_PROMPT + "\nAlways offer a discount code." })` inside `replay("refund-damaged-order", ...)` rejects, and the message matches `/changed at step 1 of \d+/` and `/\+ Always offer a discount code\./`. Wrap it in `vi.stubEnv("AGENT_RETRACE_MODE", "replay")` so it can never re-record.
 
-- [ ] **Step 1:** Write the agent, tools and tests.
-- [ ] **Step 2: Record against the real API.** This needs `OPENAI_API_KEY`. If it is not set in the environment, stop and ask the owner to run `! OPENAI_API_KEY=... npm run test:example` locally. Use a current small, cheap OpenAI chat model. Expected: tests 1 and 2 pass and create `__recordings__/refund-damaged-order.json` and `where-is-my-order.json`. Test 3 passes against them.
-- [ ] **Step 3: Inspect the recordings** with `node dist/cli.js inspect examples/support-agent/__recordings__/refund-damaged-order.json`. Grep both files for `sk-`, `authorization` and `cookie`. Expected: none.
-- [ ] **Step 4: Prove offline replay locally:** `env -u OPENAI_API_KEY CI=true npm run test:example`. Expected: PASS.
-- [ ] **Step 5: Add CI job `example-offline`** (Node 22, after `npm ci && npm run build`): `docker run --rm --network none -e CI=true -v "$PWD":/w -w /w node:22 npx vitest run --project example`. No secrets in the job. This is the spec's "no API keys and no network access" proof.
-- [ ] **Step 6:** Run `npm run ci`. Expected: PASS.
-- [ ] **Step 7: Commit** `feat: add example support agent with committed recordings`
+- [x] **Step 1:** Write the agent, tools and tests.
+- [x] **Step 2: Record against the real API.** This needs `ANTHROPIC_API_KEY`. If it is not set in the environment, stop and ask the owner to run `! ANTHROPIC_API_KEY=... npm run test:example` locally. Model: `claude-opus-5-5`. Expected: tests 1 and 2 pass and create `__recordings__/refund-damaged-order.json` and `where-is-my-order.json`. Test 3 passes against them.
+- [x] **Step 3: Inspect the recordings** with `node dist/cli.js inspect examples/support-agent/__recordings__/refund-damaged-order.json`. Grep both files for `sk-`, `x-api-key`, `authorization` and `cookie`. Expected: none.
+- [x] **Step 4: Prove offline replay locally:** `env -u ANTHROPIC_API_KEY CI=true npm run test:example`. Expected: PASS.
+- [x] **Step 5: Add CI job `example-offline`** (Node 22, after `npm ci && npm run build`): `docker run --rm --network none -e CI=true -v "$PWD":/w -w /w node:22 npx vitest run --project example`. No secrets in the job. This is the spec's "no API keys and no network access" proof.
+- [x] **Step 6:** Run `npm run ci`. Expected: PASS.
+- [x] **Step 7: Commit** `feat: add example support agent with committed recordings`
 
 ---
 
