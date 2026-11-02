@@ -94,6 +94,31 @@ test("playResponse drives a new-API handler", async () => {
   ]);
 });
 
+test("a new-API handler finds the headers on controller.rawHeaders, as undici sets them", async () => {
+  // Node 26's fetch (undici 8) builds the response headers from
+  // `controller.rawHeaders` alone and ignores the headers argument, so a
+  // controller without them gives a response with no headers at all.
+  const { handler, calls } = modernHandler();
+  handler.onResponseStart = (c: { rawHeaders?: unknown }) =>
+    void calls.push([
+      "onResponseStart",
+      Array.isArray(c.rawHeaders) && c.rawHeaders.every((v) => Buffer.isBuffer(v)),
+      (c.rawHeaders as Buffer[] | undefined)?.map(String),
+    ]);
+  const multi = encodeResponse({
+    status: 200,
+    headers: { "content-type": "application/json", "x-request-id": "req_1" },
+    body: "{}",
+  });
+  playResponse(toSink(handler), multi);
+  await finished(calls);
+  expect(calls[1]).toEqual([
+    "onResponseStart",
+    true,
+    ["content-type", "application/json", "x-request-id", "req_1"],
+  ]);
+});
+
 test("aborting a legacy handler stops playback and reports an AbortError", async () => {
   const { handler, calls } = legacyHandler();
   let abort: ((reason?: Error) => void) | undefined;

@@ -149,6 +149,20 @@ function fromHeaderObject(
 }
 
 /**
+ * Converts a header record to the flat `[name, value, name, value, ...]`
+ * list of buffers undici hands to handlers.
+ *
+ * @param headers - Header names (lowercase) and values.
+ * @returns The headers as a flat list of buffers.
+ */
+function toRawHeaders(headers: Record<string, string>): Buffer[] {
+  return Object.entries(headers).flatMap(([name, value]) => [
+    Buffer.from(name),
+    Buffer.from(value),
+  ]);
+}
+
+/**
  * Wraps an undici handler so a response can be delivered to it with plain
  * method calls, whichever API it speaks.
  *
@@ -158,7 +172,7 @@ function fromHeaderObject(
 export function toSink(handler: object): ResponseSink {
   const h = handler as Loose;
   if (usesControllerApi(handler)) {
-    let controller: object = {};
+    let controller: Record<string, unknown> = {};
     return {
       /** Builds the controller the handler gets and calls `onRequestStart`. */
       start(abort) {
@@ -174,8 +188,13 @@ export function toSink(handler: object): ResponseSink {
         };
         h.onRequestStart?.(controller, {});
       },
-      /** Calls `onResponseStart`. */
+      /**
+       * Calls `onResponseStart`. Like undici, it first puts the raw headers
+       * on the controller: Node 26's fetch (undici 8) reads them from there
+       * and ignores the headers argument.
+       */
       headers(status, headers, statusText) {
+        controller.rawHeaders = toRawHeaders(headers);
         h.onResponseStart?.(controller, status, headers, statusText);
         return true;
       },
@@ -201,11 +220,7 @@ export function toSink(handler: object): ResponseSink {
     },
     /** Calls `onHeaders` with the headers as a flat list of buffers. */
     headers(status, headers, statusText) {
-      const raw = Object.entries(headers).flatMap(([name, value]) => [
-        Buffer.from(name),
-        Buffer.from(value),
-      ]);
-      return h.onHeaders?.(status, raw, () => {}, statusText) !== false;
+      return h.onHeaders?.(status, toRawHeaders(headers), () => {}, statusText) !== false;
     },
     /** Calls `onData`. */
     data(chunk) {
