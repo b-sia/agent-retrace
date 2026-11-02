@@ -10,7 +10,7 @@ import pc from "picocolors";
 import { removeIgnoredPaths } from "../match/normalize.js";
 import type { JsonValue, RecordedRequest, Step } from "../recording/format.js";
 import { stableStringify } from "../recording/format.js";
-import type { Colors } from "../terminal.js";
+import { type Colors, oneLine } from "../terminal.js";
 import { toSemantic } from "./semantic.js";
 
 /** Everything needed to explain one mismatch. */
@@ -46,32 +46,36 @@ export interface RenderOptions {
 const CONTEXT = 3;
 
 /**
- * Describes a step in a few words.
+ * Describes a step in a few words. Like every piece of recorded text this
+ * module prints, it goes through {@link oneLine}, so a recording cannot send
+ * escape sequences to the terminal of the person reading the error.
  *
  * @param step - The step.
  * @returns E.g. "LLM call (POST api.openai.com/v1/chat/completions)" or "tool `search`".
  */
 export function describeStep(step: Step): string {
   return step.type === "llm"
-    ? `LLM call (${toSemantic(step.request).endpoint})`
-    : `tool \`${step.name}\``;
+    ? `LLM call (${oneLine(toSemantic(step.request).endpoint)})`
+    : `tool \`${oneLine(step.name)}\``;
 }
 
 /**
- * Formats a JSON value on one line.
+ * Formats a JSON value on one line, safe for the terminal.
  *
  * @param value - The value.
  * @returns Compact JSON.
  */
 function compact(value: JsonValue | undefined): string {
-  return value === undefined ? "(none)" : JSON.stringify(value);
+  return value === undefined ? "(none)" : oneLine(JSON.stringify(value));
 }
 
 /**
  * Line-diffs two texts, keeping at most `CONTEXT` unchanged lines around each
  * change and writing a longer unchanged run as `...`. Lines are split on "\n"
  * and diffed as arrays, so a trailing newline shows up as an added or removed
- * empty line instead of two identical-looking lines.
+ * empty line instead of two identical-looking lines. Lines are compared as
+ * recorded and escaped only for display, so a change to a control character
+ * (a "\r\n" that became "\n") still shows, and visibly.
  *
  * @param a - Old text.
  * @param b - New text.
@@ -88,10 +92,10 @@ function lineDiff(a: string, b: string, c: Colors, indent = ""): string[] {
     if (change.added || change.removed) {
       const mark = change.added ? c.green : c.red;
       const sign = change.added ? "+" : "-";
-      for (const line of change.value) out.push(mark(`${indent}${sign} ${line}`));
+      for (const line of change.value) out.push(mark(`${indent}${sign} ${oneLine(line)}`));
       return;
     }
-    const lines = change.value;
+    const lines = change.value.map(oneLine);
     const head = i === 0 ? 0 : CONTEXT;
     const tail = i === changes.length - 1 ? 0 : CONTEXT;
     // Collapsing a single line would not save any space.
@@ -118,8 +122,8 @@ function lineDiff(a: string, b: string, c: Colors, indent = ""): string[] {
 function messagesDiff(a: string[], b: string[], c: Colors): string[] {
   const out: string[] = [];
   for (const change of diffArrays(a, b)) {
-    if (change.added) for (const line of change.value) out.push(c.green(`+ ${line}`));
-    else if (change.removed) for (const line of change.value) out.push(c.red(`- ${line}`));
+    if (change.added) for (const line of change.value) out.push(c.green(`+ ${oneLine(line)}`));
+    else if (change.removed) for (const line of change.value) out.push(c.red(`- ${oneLine(line)}`));
     else out.push(c.dim(`  (${change.value.length} unchanged)`));
   }
   return out;
@@ -142,11 +146,13 @@ function entriesDiff(
   show: (value: JsonValue | undefined) => string = compact,
 ): string[] {
   const out: string[] = [];
+  const safe = (value: JsonValue | undefined) => oneLine(show(value));
   for (const key of sortedKeys(a, b)) {
     const [va, vb] = [a[key], b[key]];
-    if (va === undefined) out.push(c.green(`+ ${key}: ${show(vb)}`));
-    else if (vb === undefined) out.push(c.red(`- ${key}: ${show(va)}`));
-    else if (!sameJson(va, vb)) out.push(c.yellow(`~ ${key}: ${show(va)} -> ${show(vb)}`));
+    const k = oneLine(key);
+    if (va === undefined) out.push(c.green(`+ ${k}: ${safe(vb)}`));
+    else if (vb === undefined) out.push(c.red(`- ${k}: ${safe(va)}`));
+    else if (!sameJson(va, vb)) out.push(c.yellow(`~ ${k}: ${safe(va)} -> ${safe(vb)}`));
   }
   return out;
 }
@@ -164,10 +170,11 @@ function toolsDiff(a: Map<string, JsonValue>, b: Map<string, JsonValue>, c: Colo
   const out: string[] = [];
   for (const name of sortedKeys(Object.fromEntries(a), Object.fromEntries(b))) {
     const [sa, sb] = [a.get(name), b.get(name)];
-    if (sa === undefined) out.push(c.green(`+ added ${name}`));
-    else if (sb === undefined) out.push(c.red(`- removed ${name}`));
+    const shown = oneLine(name);
+    if (sa === undefined) out.push(c.green(`+ added ${shown}`));
+    else if (sb === undefined) out.push(c.red(`- removed ${shown}`));
     else if (!sameJson(sa, sb)) {
-      out.push(c.yellow(`~ changed ${name} (schema)`), ...lineDiff(json(sa), json(sb), c, "    "));
+      out.push(c.yellow(`~ changed ${shown} (schema)`), ...lineDiff(json(sa), json(sb), c, "    "));
     }
   }
   return out;
@@ -269,11 +276,11 @@ function llmSections(
   const sb = toSemantic(rb);
   const sections: string[][] = [];
   if (sa.endpoint !== sb.endpoint) {
-    sections.push([c.yellow(`Endpoint: ${sa.endpoint} -> ${sb.endpoint}`)]);
+    sections.push([c.yellow(oneLine(`Endpoint: ${sa.endpoint} -> ${sb.endpoint}`))]);
   }
   sections.push(...section("Headers", entriesDiff(ra.headers, rb.headers, c, String), c));
   if (sa.model !== sb.model) {
-    sections.push([c.yellow(`Model: ${sa.model ?? "(none)"} -> ${sb.model ?? "(none)"}`)]);
+    sections.push([c.yellow(oneLine(`Model: ${sa.model ?? "(none)"} -> ${sb.model ?? "(none)"}`))]);
   }
   let payloadA: JsonValue = ra.text ?? ra.body ?? null;
   let payloadB: JsonValue = rb.text ?? rb.body ?? null;
@@ -312,7 +319,7 @@ function changeSections(a: Step, b: Step, ignore: readonly string[], c: Colors):
   if (a.type === "llm" && b.type === "llm") return llmSections(a.request, b.request, ignore, c);
   if (a.type === "tool" && b.type === "tool") {
     const sections: string[][] = [];
-    if (a.name !== b.name) sections.push([c.yellow(`Tool: ${a.name} -> ${b.name}`)]);
+    if (a.name !== b.name) sections.push([c.yellow(oneLine(`Tool: ${a.name} -> ${b.name}`))]);
     if (!sameJson(a.args, b.args)) {
       sections.push(...section("Arguments", lineDiff(json(a.args), json(b.args), c), c));
     }
@@ -357,12 +364,15 @@ export function renderChange(report: ChangeReport, opts: RenderOptions = {}): st
     sections = changeSections(recorded, live, report.ignore ?? [], c);
   }
   const blocks = [
-    [`agent-retrace: recording "${report.recordingName}" no longer matches.`, c.bold(header)],
+    [
+      `agent-retrace: recording "${oneLine(report.recordingName)}" no longer matches.`,
+      c.bold(header),
+    ],
     ...sections,
     [
-      `Recording: ${displayPath(report.recordingPath, opts.cwd ?? process.cwd())}`,
+      `Recording: ${oneLine(displayPath(report.recordingPath, opts.cwd ?? process.cwd()))}`,
       `To accept this change and re-record from step ${n}, run:`,
-      `  ${report.command}`,
+      `  ${oneLine(report.command)}`,
     ],
   ];
   return blocks.map((lines) => lines.join("\n")).join("\n\n");

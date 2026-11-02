@@ -61,3 +61,13 @@ test("errors expose their inputs", () => {
   expect([blocked.url, blocked.reason]).toEqual(["https://api.openai.com/v1", "outside-replay"]);
   expect(blocked.message).toContain("https://api.openai.com/v1");
 });
+
+test("RecordingFormatError escapes control characters a recording file can put in its message", () => {
+  const err = new RecordingFormatError(
+    "/r.json",
+    'holds recording "a\u009b2J\u007f", expected "a"',
+  );
+  expect(err.message).toBe(
+    'Invalid recording file /r.json: holds recording "a\\u009b2J\\u007f", expected "a"',
+  );
+});

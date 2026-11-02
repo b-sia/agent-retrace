@@ -198,3 +198,10 @@ test("newer version message", () =>
 
 test("the error names the file", () =>
   expect(() => parseRecording("not json", "/x/f.json")).toThrow(/\/x\/f\.json/));
+
+test("a step type with terminal control characters is escaped in the error", () => {
+  const text = JSON.stringify({ formatVersion: 1, name: "x", steps: [{ type: "\u009b2J\u001b" }] });
+  expect(() => parseRecording(text, "/r.json")).toThrow(
+    'Invalid recording file /r.json: step 1 has unknown type "\\u009b2J\\u001b"',
+  );
+});

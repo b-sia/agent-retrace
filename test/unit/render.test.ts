@@ -381,3 +381,71 @@ test("a directory whose name starts with two dots is still inside cwd", () =>
   expect(
     render({ ...report(tool("a"), tool("b")), recordingPath: join(CWD, "..cache/r.json") }),
   ).toContain("Recording: ..cache/r.json\n"));
+
+// Escape sequences a malicious recording could carry: clear screen, retitle,
+// bell, carriage return, and the one-byte C1 CSI that JSON.stringify keeps.
+const EVIL = "\u001b[2J\u001b]0;pwned\u0007\rX\u009b2J\u007f";
+const EVIL_SHOWN = "\\u001b[2J\\u001b]0;pwned\\u0007\\rX\\u009b2J\\u007f";
+// biome-ignore lint/suspicious/noControlCharactersInRegex: checking none are printed.
+const CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
+
+/**
+ * Builds a Chat Completions request whose every recorded string carries `EVIL`.
+ *
+ * @param suffix - Makes the live request differ from the recorded one.
+ * @returns The request.
+ */
+function evilChat(suffix: string): RecordedRequest {
+  return {
+    method: "POST",
+    url: "https://api.openai.com/v1/chat/completions",
+    headers: { [`x-${suffix}`]: `${EVIL}${suffix}` },
+    body: {
+      model: `gpt${EVIL}${suffix}`,
+      messages: [
+        { role: "system", content: `line1\n${EVIL}${suffix}` },
+        { role: "user", content: `${EVIL}${suffix}` },
+      ],
+      tools: [
+        { type: "function", function: { name: `t${EVIL}`, parameters: { d: EVIL + suffix } } },
+      ],
+      [`p${EVIL}`]: `${EVIL}${suffix}`,
+    },
+  };
+}
+
+test("escapes control characters in every part of an LLM change", () => {
+  const text = render(report(evilChat("a"), evilChat("b")));
+  expect(text).not.toMatch(CONTROL);
+  expect(text).toContain(`System prompt:\n  line1\n- ${EVIL_SHOWN}a\n+ ${EVIL_SHOWN}b\n`);
+  expect(text).toContain(`Model: gpt${EVIL_SHOWN}a -> gpt${EVIL_SHOWN}b`);
+  expect(text).toContain(`- user: ${EVIL_SHOWN}a\n+ user: ${EVIL_SHOWN}b`);
+  expect(text).toContain(`~ changed t${EVIL_SHOWN} (schema)`);
+  expect(text).toContain(`- x-a: ${EVIL_SHOWN}a`);
+});
+
+test("escapes control characters in a raw body diff and in tool changes", () => {
+  const unknown = (s: string): RecordedRequest => ({
+    method: "POST",
+    url: "https://llm.example.com/v1/generate",
+    headers: {},
+    body: { prompt: `${EVIL}${s}` },
+  });
+  expect(render(report(unknown("a"), unknown("b")))).not.toMatch(CONTROL);
+  const tools = render(report(tool(`a${EVIL}`, EVIL), tool(`b${EVIL}`, `${EVIL}!`)));
+  expect(tools).not.toMatch(CONTROL);
+  expect(tools).toContain(`Tool: a${EVIL_SHOWN} -> b${EVIL_SHOWN}`);
+  const kinds = render(report(tool(`a${EVIL}`), llm(unknown("a")), "changed"));
+  expect(kinds).not.toMatch(CONTROL);
+  expect(render(report(undefined, tool(EVIL), "extra"))).not.toMatch(CONTROL);
+});
+
+test("escapes control characters in a Responses API item type", () => {
+  const responses = (type: string): RecordedRequest => ({
+    method: "POST",
+    url: "https://api.openai.com/v1/responses",
+    headers: {},
+    body: { model: "m", input: [{ type }] },
+  });
+  expect(render(report(responses(`a${EVIL}`), responses(`b${EVIL}`)))).not.toMatch(CONTROL);
+});

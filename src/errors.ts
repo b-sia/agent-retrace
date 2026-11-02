@@ -3,6 +3,7 @@
  * `AgentRetraceError`, so callers can catch all of them with one check.
  */
 import { isAbsolute, relative, sep } from "node:path";
+import { oneLine } from "./terminal.js";
 
 /**
  * Shows a path relative to the working directory when it lies inside it.
@@ -84,7 +85,8 @@ export class RecordingFormatError extends AgentRetraceError {
    * @param reason - Why the file was rejected.
    */
   constructor(filePath: string, reason: string) {
-    super(`Invalid recording file ${filePath}: ${reason}`);
+    // The reason can quote the file, which may come from an untrusted change.
+    super(oneLine(`Invalid recording file ${filePath}: ${reason}`));
     this.filePath = filePath;
     this.reason = reason;
   }

@@ -188,7 +188,7 @@ function openaiResponses(body: JsonObject): Pick<SemanticRequest, "system" | "me
     } else {
       // Reasoning items, built-in tool calls and the like: their payloads are
       // opaque, so only their position is shown.
-      messages.push(`[${type}]`);
+      messages.push(`[${oneLine(type)}]`);
     }
   }
   const tools = new Map<string, JsonValue>();
