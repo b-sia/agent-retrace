@@ -2,3 +2,8 @@ node_modules
 dist
 *.tgz
 coverage
+
+# Local secrets. Load keys from the environment instead.
+*api_key*.txt
+.env
+.env.*
