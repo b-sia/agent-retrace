@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import pc from "picocolors";
-import { toolCallLine, toSemantic } from "./diff/semantic.js";
+import { type ApiShape, toolCallLine, toSemantic } from "./diff/semantic.js";
 import { RecordingFormatError } from "./errors.js";
 import {
   type LlmStep,
@@ -21,34 +21,71 @@ import {
   type Step,
   stableStringifyLine,
 } from "./recording/format.js";
-import { asArray, asString, isObject, type JsonValue } from "./recording/json.js";
+import { asArray, asString, isObject, type JsonObject, type JsonValue } from "./recording/json.js";
 import { type Colors, oneLine } from "./terminal.js";
 
 /** Options for {@link formatTimeline}. */
 export interface TimelineOptions {
-  /** Whether to emit ANSI colors. Defaults to whether the terminal supports them. */
+  /** Whether to emit ANSI colors. Defaults to {@link shouldColor} for stdout. */
   color?: boolean;
 }
 
-/** What an assistant answered: its text and the tools it asked for. */
+/** What an assistant answered: its text, the tools it asked for, and how it failed. */
 interface Answer {
   text: string;
   calls: { name: JsonValue | undefined; args: JsonValue | undefined }[];
+  /** Set when a 2xx response still reports a failure, e.g. an error event mid-stream. */
+  error?: string;
 }
 
-const USAGE = "Usage: agent-retrace inspect <file>";
+const USAGE = "Usage: agent-retrace inspect <file> [--color | --no-color]";
 const HELP = `${USAGE}
 
 Prints a recording as a timeline: one entry per step, with the last message
 sent and the answer for LLM calls, and the arguments and outcome for tools.
+
+Options:
+  --color      Always color the output.
+  --no-color   Never color the output.
+  -h, --help   Show this help.
+
+Without a flag, the output is colored on a terminal. NO_COLOR turns colors
+off and FORCE_COLOR turns them on (FORCE_COLOR=0 turns them off).
 
 Exit codes: 0 ok, 1 unreadable or invalid file, 2 bad usage.
 `;
 
 // Longest summary shown on one line, "..." included.
 const MAX_SUMMARY = 100;
-// Detail lines sit under the step's label.
-const DETAIL_INDENT = " ".repeat(8);
+// The columns between a step's number and its content: "  LLM   " or "  tool  ".
+const TAG_WIDTH = 8;
+// Detail markers ("< ", "> ") end where the step's content starts.
+const MARK_WIDTH = 2;
+// The Responses API events that end a stream and carry the final response.
+const RESPONSES_DONE = new Set(["response.completed", "response.failed", "response.incomplete"]);
+
+/**
+ * Decides whether to color output. A `--color` or `--no-color` flag wins;
+ * then a non-empty `NO_COLOR` turns colors off, and `FORCE_COLOR` turns them
+ * on unless it is `0` or `false`; otherwise output is colored on a terminal
+ * that is not `TERM=dumb`, so piping to a file or `less` gets plain text.
+ *
+ * @param flag - The `--color` (true) or `--no-color` (false) flag, if given.
+ * @param env - The environment, e.g. `process.env`.
+ * @param isTTY - Whether the output is a terminal.
+ * @returns True to color.
+ */
+export function shouldColor(
+  flag: boolean | undefined,
+  env: Readonly<Record<string, string | undefined>>,
+  isTTY: boolean,
+): boolean {
+  if (flag !== undefined) return flag;
+  if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return false;
+  const force = env.FORCE_COLOR;
+  if (force !== undefined) return force !== "0" && force !== "false";
+  return isTTY && env.TERM !== "dumb";
+}
 
 /**
  * Shortens text to {@link MAX_SUMMARY} characters, ending in "...". Counts
@@ -63,8 +100,22 @@ function truncate(text: string): string {
 }
 
 /**
- * Reads an OpenAI Chat Completions message (`choices[0].message`, or the
- * same shape rebuilt from stream deltas).
+ * Describes a provider error object (`{type, code, message}` in any of the
+ * three APIs) as "kind: message".
+ *
+ * @param value - The error object.
+ * @returns E.g. "overloaded_error: Overloaded".
+ */
+function describeError(value: JsonValue | undefined): string {
+  const e = isObject(value) ? value : {};
+  // A Responses `error` event is itself the error, with type "error".
+  const kind = asString(e.code) ?? (e.type === "error" ? undefined : asString(e.type));
+  const parts = [kind, asString(e.message)].filter((p) => p !== undefined && p !== "");
+  return parts.length > 0 ? parts.join(": ") : "unknown error";
+}
+
+/**
+ * Reads an OpenAI Chat Completions message (`choices[0].message`).
  *
  * @param message - The message.
  * @returns The answer.
@@ -79,17 +130,24 @@ function chatAnswer(message: JsonValue | undefined): Answer {
 }
 
 /**
- * Rebuilds an OpenAI Chat Completions message from streamed chunks: text
- * deltas are concatenated, and tool call fragments are joined by `index`.
+ * Rebuilds the first choice of an OpenAI Chat Completions answer from
+ * streamed chunks: text deltas are concatenated, and tool call fragments are
+ * joined by `index`. With `n > 1` each chunk carries one choice, so chunks
+ * for other choices are skipped. An `error` chunk records the failure.
  *
  * @param events - The stream's events.
  * @returns The answer.
  */
 function chatStreamAnswer(events: SseEvent[]): Answer {
   let text = "";
+  let error: string | undefined;
   const calls: { name: string; args: string }[] = [];
   for (const { data } of events) {
-    const choice = isObject(data) ? asArray(data.choices)[0] : undefined;
+    if (!isObject(data)) continue;
+    if (data.error !== undefined) error = describeError(data.error);
+    const choice = asArray(data.choices).find(
+      (c) => isObject(c) && (typeof c.index === "number" ? c.index : 0) === 0,
+    );
     const delta = isObject(choice) && isObject(choice.delta) ? choice.delta : {};
     text += asString(delta.content) ?? "";
     for (const call of asArray(delta.tool_calls)) {
@@ -103,7 +161,7 @@ function chatStreamAnswer(events: SseEvent[]): Answer {
     }
   }
   // A sparse array (an index never sent) would leave holes; skip them.
-  return { text, calls: calls.filter((call) => call !== undefined) };
+  return { text, calls: calls.filter((call) => call !== undefined), error };
 }
 
 /**
@@ -112,7 +170,7 @@ function chatStreamAnswer(events: SseEvent[]): Answer {
  * @param output - The output items.
  * @returns The answer.
  */
-function responsesAnswer(output: JsonValue[]): Answer {
+function responsesOutput(output: JsonValue[]): Answer {
   const answer: Answer = { text: "", calls: [] };
   for (const item of output) {
     if (!isObject(item)) continue;
@@ -128,26 +186,53 @@ function responsesAnswer(output: JsonValue[]): Answer {
 }
 
 /**
- * Rebuilds an OpenAI Responses API answer from its stream: the output of the
- * final `response.completed` event, else the items announced as done, else
- * the concatenated text deltas of a stream that was cut short.
+ * Reads an OpenAI Responses API response object: its output, and its error
+ * when its status is `failed` or `incomplete`.
+ *
+ * @param response - The response object (a body, or a final stream event's `response`).
+ * @returns The answer.
+ */
+function responsesAnswer(response: JsonObject): Answer {
+  const answer = responsesOutput(asArray(response.output));
+  if (response.status === "failed") {
+    answer.error = describeError(response.error);
+  } else if (response.status === "incomplete") {
+    const details = isObject(response.incomplete_details) ? response.incomplete_details : {};
+    answer.error = `incomplete: ${asString(details.reason) ?? "unknown reason"}`;
+  }
+  return answer;
+}
+
+/**
+ * Rebuilds an OpenAI Responses API answer from its stream: the response of
+ * the final `response.completed`, `response.failed` or `response.incomplete`
+ * event, else the items announced as done, else the concatenated text deltas
+ * of a stream that was cut short. An `error` event records the failure.
  *
  * @param events - The stream's events.
  * @returns The answer.
  */
 function responsesStreamAnswer(events: SseEvent[]): Answer {
   const data = events.map((e) => (isObject(e.data) ? e.data : {}));
-  const completed = data.findLast((d) => d.type === "response.completed");
-  if (completed !== undefined && isObject(completed.response)) {
-    return responsesAnswer(asArray(completed.response.output));
-  }
+  const final = data.findLast((d) => RESPONSES_DONE.has(asString(d.type) ?? ""));
   const done = data.filter((d) => d.type === "response.output_item.done").map((d) => d.item ?? {});
-  if (done.length > 0) return responsesAnswer(done);
-  const text = data
-    .filter((d) => d.type === "response.output_text.delta")
-    .map((d) => asString(d.delta) ?? "")
-    .join("");
-  return { text, calls: [] };
+  let answer: Answer;
+  if (final !== undefined && isObject(final.response)) {
+    answer = responsesAnswer(final.response);
+  } else if (done.length > 0) {
+    answer = responsesOutput(done);
+  } else {
+    const text = data
+      .filter((d) => d.type === "response.output_text.delta")
+      .map((d) => asString(d.delta) ?? "")
+      .join("");
+    answer = { text, calls: [] };
+  }
+  const errorEvent = data.findLast((d) => d.type === "error");
+  if (answer.error === undefined && errorEvent !== undefined) {
+    answer.error = describeError(errorEvent);
+  }
+  return answer;
 }
 
 /**
@@ -169,81 +254,93 @@ function anthropicAnswer(content: JsonValue[]): Answer {
 /**
  * Rebuilds an Anthropic message from its stream: each `content_block_start`
  * opens a block at its `index`, and `content_block_delta` events append text
- * or partial tool input JSON to it.
+ * or partial tool input JSON to it. An `error` event records the failure.
  *
  * @param events - The stream's events.
  * @returns The answer.
  */
 function anthropicStreamAnswer(events: SseEvent[]): Answer {
-  const blocks: { type: string; name?: JsonValue; text: string }[] = [];
+  const blocks: {
+    type: string;
+    name?: JsonValue;
+    input?: JsonValue;
+    text: string;
+    json: string;
+  }[] = [];
+  let error: string | undefined;
   for (const { data } of events) {
-    if (!isObject(data) || typeof data.index !== "number") continue;
+    if (!isObject(data)) continue;
+    if (data.type === "error") error = describeError(data.error);
+    if (typeof data.index !== "number") continue;
     if (data.type === "content_block_start" && isObject(data.content_block)) {
       const block = data.content_block;
-      // A tool_use block starts with an empty `input` that the deltas fill in.
       blocks[data.index] = {
         type: asString(block.type) ?? "",
         name: block.name,
+        input: block.input,
         text: asString(block.text) ?? "",
+        json: "",
       };
     } else if (data.type === "content_block_delta" && isObject(data.delta)) {
       const block = blocks[data.index];
       if (block === undefined) continue;
-      block.text += (asString(data.delta.text) ?? "") + (asString(data.delta.partial_json) ?? "");
+      block.text += asString(data.delta.text) ?? "";
+      block.json += asString(data.delta.partial_json) ?? "";
     }
   }
-  const answer: Answer = { text: "", calls: [] };
+  const answer: Answer = { text: "", calls: [], error };
   for (const block of blocks) {
     if (block?.type === "text") answer.text += block.text;
-    if (block?.type === "tool_use") answer.calls.push({ name: block.name, args: block.text });
+    // A tool_use block starts with an `input` (usually `{}`) that the deltas
+    // replace; with no partial JSON, the starting input is the input.
+    if (block?.type === "tool_use") {
+      answer.calls.push({ name: block.name, args: block.json !== "" ? block.json : block.input });
+    }
   }
   return answer;
 }
 
 /**
- * Works out what the assistant answered in an LLM step, for the three
- * provider APIs the semantic view understands, streamed or not.
+ * Works out what the assistant answered in a successful LLM step, for the
+ * three provider APIs the semantic view understands, streamed or not.
  *
- * @param step - The LLM step.
- * @returns The answer, or undefined for another API or a non-2xx response.
+ * @param step - The LLM step, with a 2xx response.
+ * @param api - The step's provider API.
+ * @returns The answer, or undefined for another API or a body of the wrong shape.
  */
-function answerOf(step: LlmStep): Answer | undefined {
-  const { response } = step;
-  if (response.status < 200 || response.status > 299) return undefined;
-  const { api } = toSemantic(step.request);
-  const body = isObject(response.body) ? response.body : undefined;
-  const events = response.events;
+function answerOf(step: LlmStep, api: ApiShape): Answer | undefined {
+  const { body, events } = step.response;
+  const obj = isObject(body) ? body : undefined;
   if (api === "openai-chat") {
     if (events !== undefined) return chatStreamAnswer(events);
-    const choice = asArray(body?.choices)[0];
-    return body && chatAnswer(isObject(choice) ? choice.message : undefined);
+    const choice = asArray(obj?.choices)[0];
+    return obj && chatAnswer(isObject(choice) ? choice.message : undefined);
   }
   if (api === "openai-responses") {
     if (events !== undefined) return responsesStreamAnswer(events);
-    return body && responsesAnswer(asArray(body.output));
+    return obj && responsesAnswer(obj);
   }
   if (api === "anthropic-messages") {
     if (events !== undefined) return anthropicStreamAnswer(events);
-    return body && anthropicAnswer(asArray(body.content));
+    return obj && anthropicAnswer(asArray(obj.content));
   }
   return undefined;
 }
 
 /**
- * Summarizes an LLM response: one line for the text and one per tool call,
- * or the HTTP status when there is no answer to show.
+ * Summarizes an answer: one line for the text, one per tool call and one for
+ * the error, or the HTTP status when there is nothing to show.
  *
- * @param step - The LLM step.
+ * @param answer - The answer, if one could be read.
+ * @param status - The HTTP status.
  * @returns The summary lines, without the "< " marker.
  */
-function responseLines(step: LlmStep): string[] {
-  const answer = answerOf(step);
+function responseLines(answer: Answer | undefined, status: number): string[] {
   const lines: string[] = [];
-  if (answer !== undefined && answer.text !== "") {
-    lines.push(`assistant: ${oneLine(answer.text)}`);
-  }
+  if (answer !== undefined && answer.text !== "") lines.push(`assistant: ${oneLine(answer.text)}`);
   for (const call of answer?.calls ?? []) lines.push(toolCallLine(call.name, call.args));
-  return lines.length > 0 ? lines : [`HTTP ${step.response.status}`];
+  if (answer?.error !== undefined) lines.push(`error: ${answer.error}`);
+  return lines.length > 0 ? lines : [`HTTP ${status}`];
 }
 
 /**
@@ -253,7 +350,26 @@ function responseLines(step: LlmStep): string[] {
  * @returns E.g. "throws TypeError: boom".
  */
 function thrown(error: RecordedError): string {
-  return `throws ${oneLine(`${error.name}: ${error.message}`)}`;
+  return `throws ${error.name}: ${error.message}`;
+}
+
+/**
+ * Formats one detail line under a step: indented to the step's content,
+ * made safe for the terminal, shortened and colored.
+ *
+ * @param indent - The spaces before the marker.
+ * @param mark - ">" for what was sent, "<" for what came back.
+ * @param text - The detail.
+ * @param color - Colors the whole line.
+ * @returns The line.
+ */
+function detailLine(
+  indent: string,
+  mark: string,
+  text: string,
+  color: (s: string) => string,
+): string {
+  return color(`${indent}${mark} ${truncate(oneLine(text))}`);
 }
 
 /**
@@ -265,15 +381,15 @@ function thrown(error: RecordedError): string {
  * @returns The lines.
  */
 function stepLines(step: Step, label: string, c: Colors): string[] {
-  const detail = (mark: string, text: string, color: (s: string) => string): string =>
-    color(`${DETAIL_INDENT}${mark} ${truncate(text)}`);
+  const indent = " ".repeat(label.length + TAG_WIDTH - MARK_WIDTH);
   if (step.type === "tool") {
-    const call = truncate(`${step.name}(${step.args.map(stableStringifyLine).join(",")})`);
+    const call = truncate(oneLine(`${step.name}(${step.args.map(stableStringifyLine).join(",")})`));
     const outcome = step.outcome;
     const result =
       outcome.type === "throw"
-        ? detail("<", thrown(outcome), c.red)
-        : detail(
+        ? detailLine(indent, "<", thrown(outcome), c.red)
+        : detailLine(
+            indent,
             "<",
             outcome.value === undefined ? "undefined" : stableStringifyLine(outcome.value),
             c.green,
@@ -283,15 +399,19 @@ function stepLines(step: Step, label: string, c: Colors): string[] {
   const semantic = toSemantic(step.request);
   const body = isObject(step.request.body) ? step.request.body : {};
   const tags = [
-    ...(semantic.model !== undefined ? [`model=${semantic.model}`] : []),
+    ...(semantic.model !== undefined ? [`model=${oneLine(semantic.model)}`] : []),
     ...(body.stream === true || step.response.events !== undefined ? ["stream"] : []),
   ];
-  const header = [semantic.endpoint, ...tags.map((t) => c.dim(t))].join("  ");
+  const header = [oneLine(semantic.endpoint), ...tags.map((t) => c.dim(t))].join("  ");
   const lines = [`${c.bold(label)}  ${c.cyan("LLM ")}  ${header}`];
   const last = semantic.messages.at(-1);
-  if (last !== undefined) lines.push(detail(">", last, c.dim));
-  const ok = step.response.status >= 200 && step.response.status <= 299;
-  for (const line of responseLines(step)) lines.push(detail("<", line, ok ? c.green : c.red));
+  if (last !== undefined) lines.push(detailLine(indent, ">", last, c.dim));
+  const { status } = step.response;
+  const answer = status >= 200 && status <= 299 ? answerOf(step, semantic.api) : undefined;
+  const ok = answer !== undefined ? answer.error === undefined : status >= 200 && status <= 299;
+  for (const line of responseLines(answer, status)) {
+    lines.push(detailLine(indent, "<", line, ok ? c.green : c.red));
+  }
   return lines;
 }
 
@@ -299,15 +419,17 @@ function stepLines(step: Step, label: string, c: Colors): string[] {
  * Formats a recording as a timeline a person can read: a header with the
  * name, step count and format version, then each step with its number, the
  * last message sent and the answer (LLM) or the arguments and outcome (tool).
+ * Control characters in recorded text are escaped, never printed.
  *
  * @param r - The recording.
  * @param opts - Formatting options.
  * @returns The text, ending in "\n".
  */
 export function formatTimeline(r: Recording, opts: TimelineOptions = {}): string {
-  const c = pc.createColors(opts.color ?? pc.isColorSupported);
+  const color = opts.color ?? shouldColor(undefined, process.env, process.stdout.isTTY === true);
+  const c = pc.createColors(color);
   const count = `${r.steps.length} ${r.steps.length === 1 ? "step" : "steps"}`;
-  const lines = [`${c.bold(r.name)}  (${count}, format v${r.formatVersion})`, ""];
+  const lines = [`${c.bold(oneLine(r.name))}  (${count}, format v${r.formatVersion})`, ""];
   const width = Math.max(2, String(r.steps.length).length);
   r.steps.forEach((step, i) => {
     lines.push(...stepLines(step, String(i + 1).padStart(width), c));
@@ -322,23 +444,18 @@ export function formatTimeline(r: Recording, opts: TimelineOptions = {}): string
  * @returns The exit code: 0 ok, 1 unreadable or invalid file, 2 bad usage.
  */
 export async function main(argv: string[]): Promise<number> {
-  let values: { help?: boolean };
-  let positionals: string[];
+  let parsed: ReturnType<typeof parseCliArgs>;
   try {
-    ({ values, positionals } = parseArgs({
-      args: argv,
-      options: { help: { type: "boolean", short: "h" } },
-      allowPositionals: true,
-    }));
+    parsed = parseCliArgs(argv);
   } catch (err) {
     process.stderr.write(`agent-retrace: ${(err as Error).message}\n${USAGE}\n`);
     return 2;
   }
-  if (values.help === true) {
+  if (parsed.help) {
     process.stdout.write(HELP);
     return 0;
   }
-  const [command, file, ...rest] = positionals;
+  const [command, file, ...rest] = parsed.positionals;
   if (command !== "inspect" || file === undefined || rest.length > 0) {
     process.stderr.write(`${USAGE}\n`);
     return 2;
@@ -351,13 +468,45 @@ export async function main(argv: string[]): Promise<number> {
       err instanceof RecordingFormatError
         ? err.message
         : `Cannot read ${file}: ${(err as Error).message}`;
-    process.stderr.write(`agent-retrace: ${message}\n`);
+    // The reason can quote the file's contents, so it is made safe too.
+    process.stderr.write(`agent-retrace: ${oneLine(message)}\n`);
     return 1;
   }
-  // Colors only on a terminal, so piping to a file or `less` gets plain text.
-  const color = process.stdout.isTTY === true && pc.isColorSupported;
+  const color = shouldColor(parsed.color, process.env, process.stdout.isTTY === true);
   process.stdout.write(formatTimeline(recording, { color }));
   return 0;
+}
+
+/**
+ * Parses the command line strictly.
+ *
+ * @param argv - The arguments after the script path.
+ * @returns The positionals, whether help was asked for, and the color flag;
+ *   of `--color` and `--no-color`, the last one given wins.
+ * @throws {TypeError} On an unknown option, as `parseArgs` does.
+ */
+function parseCliArgs(argv: string[]): {
+  positionals: string[];
+  help: boolean;
+  color: boolean | undefined;
+} {
+  const { values, positionals, tokens } = parseArgs({
+    args: argv,
+    options: {
+      help: { type: "boolean", short: "h" },
+      color: { type: "boolean" },
+      "no-color": { type: "boolean" },
+    },
+    allowPositionals: true,
+    tokens: true,
+  });
+  let color: boolean | undefined;
+  for (const token of tokens) {
+    if (token.kind === "option" && (token.name === "color" || token.name === "no-color")) {
+      color = token.name === "color";
+    }
+  }
+  return { positionals, help: values.help === true, color };
 }
 
 /**

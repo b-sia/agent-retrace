@@ -63,8 +63,32 @@ Node 24.2 added `import.meta.main` for this, but `engines` allows Node 22, which
 ## Colors and pipes
 
 `process.stdout.isTTY` is `true` only when stdout is a terminal; it is `undefined` when output is
-piped or redirected. The CLI colors only on a terminal, so `agent-retrace inspect x.json > out.txt`
-writes plain text. `picocolors.isColorSupported` adds the `NO_COLOR` and `FORCE_COLOR` conventions.
+piped or redirected. By default the CLI colors only on a terminal (and not when `TERM=dumb`), so
+`agent-retrace inspect x.json > out.txt` writes plain text. `shouldColor` in `src/cli.ts` decides,
+in this order:
+
+1. `--color` or `--no-color` (the last one given wins).
+2. [`NO_COLOR`](https://no-color.org), when set and not empty, turns colors off.
+3. `FORCE_COLOR` turns them on, so `FORCE_COLOR=1 agent-retrace inspect x.json | less -R` keeps
+   them. `FORCE_COLOR=0` (or `false`) turns them off, as it does for Node itself.
+
+`picocolors.isColorSupported` is not used for this. It turns colors on whenever `CI` is set, even
+when output goes to a file. It also reads `--color` from `process.argv`, and the strict `parseArgs`
+rejects that flag unless the CLI declares it.
+
+## Untrusted text and the terminal
+
+A recording is a committed file, so it can come from an untrusted pull request. Printing its text
+raw would let it send escape sequences to the terminal: `ESC [2J` clears the screen, `ESC ]0;...BEL`
+retitles the window, and a lone `\r` moves the cursor back to overwrite the start of a line.
+`oneLine` in `src/terminal.ts` escapes every C0 and C1 control character and DEL (`\n`, `\r`,
+`\t`, `\u001b`), and every piece of recorded text the CLI prints (the name, endpoint, model,
+messages, answers, tool names, errors) goes through it. So does the "no longer matches" report
+that `ChangeDetectedError` carries (system prompt lines, headers, params, tool schemas, raw body
+diffs) and every `RecordingFormatError` message, since test runners print those to the terminal
+too. A line diff compares the text as recorded and escapes it only for display, so a change in a
+control character still shows as a change. `JSON.stringify` escapes C0 characters but
+not DEL or C1 (`\u009b` is a one-byte CSI on some terminals), so JSON output goes through it as well.
 
 When a reader closes the pipe early (`agent-retrace inspect x.json | head`), the next write fails
 with `EPIPE`, which Node emits as an `error` event on `process.stdout`. With no listener that event
