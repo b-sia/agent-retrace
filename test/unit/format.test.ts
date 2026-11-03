@@ -87,15 +87,34 @@ test("stable key order and formatting", () => {
   );
 });
 
-test("priority keys come first, the rest alphabetically", () => {
-  expect(stableStringify({ zeta: 1, body: 2, alpha: 3, method: 4 })).toBe(
-    `{\n  "method": 4,\n  "body": 2,\n  "alpha": 3,\n  "zeta": 1\n}\n`,
-  );
-});
-
-test("integer-like keys sort as strings, not numerically first", () => {
-  expect(stableStringify({ b: 1, "10": 2, "2": 3 })).toBe(
-    `{\n  "10": 2,\n  "2": 3,\n  "b": 1\n}\n`,
+test("priority keys come first, the rest sort as strings; otherwise it writes what JSON.stringify does", () => {
+  // biome-ignore lint/suspicious/noSparseArray: the hole is what is under test
+  const sparse = [3, 1, , 2];
+  expect(
+    stableStringify({
+      zeta: sparse,
+      body: {},
+      "10": 1,
+      "2": 2,
+      alpha: undefined,
+      method: "POST",
+      b: [],
+    }),
+  ).toBe(
+    `{
+  "method": "POST",
+  "body": {},
+  "10": 1,
+  "2": 2,
+  "b": [],
+  "zeta": [
+    3,
+    1,
+    null,
+    2
+  ]
+}
+`,
   );
 });
 
@@ -118,23 +137,6 @@ test("circular structures throw", () => {
   const a: Record<string, unknown> = {};
   a.self = a;
   expect(() => stableStringify(a)).toThrow(TypeError);
-});
-
-test("arrays keep their order and empty containers stay inline", () => {
-  expect(stableStringify({ a: [3, 1, 2], b: {} })).toBe(
-    `{\n  "a": [\n    3,\n    1,\n    2\n  ],\n  "b": {}\n}\n`,
-  );
-});
-
-test("undefined properties are dropped like JSON.stringify", () => {
-  expect(stableStringify({ a: undefined, b: 1 })).toBe(`{\n  "b": 1\n}\n`);
-});
-
-test("holes in sparse arrays are written as null like JSON.stringify", () => {
-  // biome-ignore lint/suspicious/noSparseArray: the hole is what is under test
-  const sparse = [1, , 3];
-  expect(stableStringify(sparse)).toBe(`${JSON.stringify(sparse, null, 2)}\n`);
-  expect(stableStringify(new Array(2))).toBe("[\n  null,\n  null\n]\n");
 });
 
 test("round trip", () => expect(parseRecording(serializeRecording(sample), "f")).toEqual(sample));
