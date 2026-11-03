@@ -131,13 +131,19 @@ test("changed request compares against the earliest unconsumed LLM step", async 
 
 test.each<[string, Recording, number]>([
   ["the earliest unconsumed step with the same tool name", rec(tool("x", 1), tool("t", 2)), 2],
-  ["else the earliest unconsumed tool step", rec(llm("a"), tool("x", 1), tool("y", 2)), 2],
-  ["else the earliest unconsumed step of any type", rec(llm("a"), llm("b")), 1],
+  [
+    "the earliest unconsumed tool step when no tool has the same name",
+    rec(llm("a"), tool("x", 1), tool("y", 2)),
+    2,
+  ],
+  ["the earliest unconsumed step when no tool step is left", rec(llm("a"), llm("b")), 1],
 ])("a changed tool call is compared against %s", (_, recording, stepNumber) => {
   const d = session("strict", recording).s.decideTool("t", [3]);
   if (d.kind !== "fail") throw new Error("expected fail");
+  const total = recording.steps.length;
   expect(d.error.stepNumber).toBe(stepNumber);
-  expect(d.error.message).toContain(`changed at step ${stepNumber} of`);
+  expect(d.error.totalSteps).toBe(total);
+  expect(d.error.message).toContain(`changed at step ${stepNumber} of ${total}:`);
 });
 
 test("extra call", async () => {

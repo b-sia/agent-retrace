@@ -53,7 +53,7 @@ const CONTEXT = 3;
  * @param step - The step.
  * @returns E.g. "LLM call (POST api.openai.com/v1/chat/completions)" or "tool `search`".
  */
-export function describeStep(step: Step): string {
+function describeStep(step: Step): string {
   return step.type === "llm"
     ? `LLM call (${oneLine(toSemantic(step.request).endpoint)})`
     : `tool \`${oneLine(step.name)}\``;

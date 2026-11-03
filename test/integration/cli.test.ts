@@ -174,6 +174,8 @@ describe("formatTimeline", () => {
     // A character made of two code units is never split.
     const emoji = formatTimeline(recording([chatStep("😀".repeat(150), 500)]), { color: false });
     expect(emoji.split("\n")[3]?.endsWith("😀...")).toBe(true);
+    // A one-step recording reads in the singular.
+    expect(emoji.split("\n")[0]).toMatch(/ {2}\(1 step, format v1\)$/);
   });
 
   test("falls back to the HTTP status for errors and unknown APIs", () => {

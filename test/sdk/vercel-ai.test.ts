@@ -15,9 +15,6 @@ import { configure, recordTool, replay } from "../../src/index.js";
 import { expectChangeReport } from "../support/change-error.js";
 import { type FakeProvider, startFakeProvider, toolThenText } from "../support/fake-provider.js";
 
-// The fake models are unknown to the AI SDK, which warns about each call.
-globalThis.AI_SDK_LOG_WARNINGS = false;
-
 const API_KEY = "sk-test-SECRET123456";
 const ANSWER = "It is sunny in Paris.";
 
@@ -71,6 +68,9 @@ async function runAgent(
     system,
     prompt: "What is the weather in Paris?",
     maxRetries: 2,
+    // Set explicitly so the AI SDK does not warn that the fake model is
+    // unknown and pick a limit for it.
+    maxOutputTokens: 1024,
     stopWhen: isStepCount(3),
     tools: {
       get_weather: tool({

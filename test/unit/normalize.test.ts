@@ -56,7 +56,11 @@ test("scrub secrets", () =>
     x: "key [REDACTED] here",
   }));
 
-test("short secrets ignored", () => expect(scrubSecrets("abc", ["abc"])).toBe("abc"));
+test("with no secret long enough to scrub, scrub returns the input itself", () => {
+  const value = { x: "key abc here" };
+  expect(scrubSecrets(value, ["abc"])).toBe(value);
+  expect(scrubSecrets(value, [])).toBe(value);
+});
 
 test("scrub replaces every occurrence, in nested values and keys", () =>
   expect(

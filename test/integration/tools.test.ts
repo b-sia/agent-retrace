@@ -286,6 +286,7 @@ test("a live tool returns the same JSON copy, in the same key order, that replay
     "10": "ten",
     "2": "two",
     order: new Order(),
+    lines: [{ sku: "W-1", qty: 1, name: "Throw" }],
     note: "found ORDER-123",
     items: [1],
   }));
@@ -305,6 +306,7 @@ test("a live tool returns the same JSON copy, in the same key order, that replay
     "10": "ten",
     "2": "two",
     order: { id: "A-1", placed: "2026-01-02T03:04:05.000Z" },
+    lines: [{ sku: "W-1", qty: 1, name: "Throw" }],
     note: "found [REDACTED]",
     items: [1],
   });
@@ -350,7 +352,7 @@ function view(err: Error): ErrorView {
   };
 }
 
-test.each<[string, () => never, Partial<ErrorView>]>([
+test.each<[string, () => never, ErrorView]>([
   [
     "a custom class keeps its name and fields on a plain Error",
     () => {
@@ -359,6 +361,7 @@ test.each<[string, () => never, Partial<ErrorView>]>([
     {
       className: "Error",
       name: "HttpError",
+      message: "rate limited",
       fields: [
         ["name", "HttpError"],
         ["status", 429],
@@ -370,7 +373,7 @@ test.each<[string, () => never, Partial<ErrorView>]>([
     () => {
       throw new TypeError("not a number");
     },
-    { className: "TypeError", fields: [] },
+    { className: "TypeError", name: "TypeError", message: "not a number", fields: [] },
   ],
   [
     "a Node error code is kept and fields that are not primitives are left out",
@@ -382,6 +385,9 @@ test.each<[string, () => never, Partial<ErrorView>]>([
       });
     },
     {
+      className: "Error",
+      name: "Error",
+      message: "ENOENT: no such file",
       fields: [
         ["code", "ENOENT"],
         ["errno", -2],
@@ -394,6 +400,10 @@ test.each<[string, () => never, Partial<ErrorView>]>([
       throw new Error("payment failed", { cause: new RangeError("card expired") });
     },
     {
+      className: "Error",
+      name: "Error",
+      message: "payment failed",
+      fields: [],
       cause: { className: "RangeError", name: "RangeError", message: "card expired", fields: [] },
     },
   ],
@@ -402,20 +412,25 @@ test.each<[string, () => never, Partial<ErrorView>]>([
     () => {
       throw Object.assign(new Error("cannot cancel ORDER-123"), { order: "ORDER-123" });
     },
-    { message: "cannot cancel [REDACTED]", fields: [["order", "[REDACTED]"]] },
+    {
+      className: "Error",
+      name: "Error",
+      message: "cannot cancel [REDACTED]",
+      fields: [["order", "[REDACTED]"]],
+    },
   ],
   [
     "a thrown non-Error becomes an Error",
     () => {
       throw "plain string";
     },
-    { className: "Error", message: "plain string", fields: [] },
+    { className: "Error", name: "Error", message: "plain string", fields: [] },
   ],
 ])("a live tool error is the error replay throws: %s", async (_, fail, expected) => {
   configure({ providerHosts: [server.host], redact: [/ORDER-\d+/] });
   const tool = recordTool("fail", async () => fail());
   const [live, replayed] = await recordThenReplay("t-error", () => thrown(tool));
-  expect(view(live)).toMatchObject(expected);
+  expect(view(live)).toEqual(expected);
   expect(view(replayed)).toEqual(view(live));
   expect(readFileSync(join(dir, "t-error.json"), "utf8")).not.toMatch(/secret|ORDER-123/);
 });

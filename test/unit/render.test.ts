@@ -276,6 +276,10 @@ test("extra and missing headers", () => {
       FOOTER,
     ].join("\n"),
   );
+  // A one-step recording reads in the singular.
+  expect(render({ ...report(undefined, tool("search"), "extra"), totalSteps: 1 })).toContain(
+    "step 2 is new (recording has 1 step): tool `search`",
+  );
   expect(render(report(llm(openaiChat()), undefined, "missing"))).toBe(
     [
       'agent-retrace: recording "refund" no longer matches.',

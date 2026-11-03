@@ -116,6 +116,11 @@ test("priority keys come first, the rest sort as strings; otherwise it writes wh
 }
 `,
   );
+  // Holes become null at the top level too, as JSON.stringify writes them.
+  for (const top of [sparse, new Array(2)]) {
+    expect(stableStringify(top)).toBe(`${JSON.stringify(top, null, 2)}\n`);
+  }
+  expect(stableStringify(new Array(2))).toBe("[\n  null,\n  null\n]\n");
 });
 
 test("stableStringifyLine writes one line in the same key order", () => {

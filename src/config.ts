@@ -173,15 +173,14 @@ export function resolveMode(env: NodeJS.ProcessEnv = process.env): Mode {
  * "https://host/").
  *
  * @param url - The request URL.
- * @param config - Configuration to check against, the current one by default.
  * @returns True when calls to this URL are recorded and replayed.
  */
-export function isProviderHost(url: URL, config: AgentRetraceConfig = getConfig()): boolean {
+export function isProviderHost(url: URL): boolean {
   // URL lowercases hostnames and drops default ports, so the default port is
   // restored here before comparing against "host:port" entries.
   const hostname = stripTrailingDot(url.hostname);
   const port = url.port || DEFAULT_PORTS[url.protocol];
-  return config.providerHosts.some(
+  return getConfig().providerHosts.some(
     (entry) => entry === hostname || (port !== undefined && entry === `${hostname}:${port}`),
   );
 }
