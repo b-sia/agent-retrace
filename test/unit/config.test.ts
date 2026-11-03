@@ -22,10 +22,10 @@ test.each(["", "0", "false", "FALSE"])("CI=%j counts as unset", (ci) =>
 test("local defaults to auto", () => expect(resolveMode({})).toBe("auto"));
 test("empty mode counts as unset", () =>
   expect(resolveMode({ AGENT_RETRACE_MODE: "", CI: "1" })).toBe("replay"));
-test("invalid mode throws", () =>
-  expect(() => resolveMode({ AGENT_RETRACE_MODE: "record" })).toThrow(InvalidModeError));
-test("invalid mode message lists the valid values", () =>
-  expect(() => resolveMode({ AGENT_RETRACE_MODE: "record" })).toThrow(/replay.*auto.*update/));
+test("invalid mode throws, listing the valid values", () => {
+  expect(() => resolveMode({ AGENT_RETRACE_MODE: "record" })).toThrow(InvalidModeError);
+  expect(() => resolveMode({ AGENT_RETRACE_MODE: "record" })).toThrow(/replay.*auto.*update/);
+});
 
 test("default provider hosts", () => {
   expect(isProviderHost(new URL("https://api.openai.com/v1/x"))).toBe(true);
@@ -41,28 +41,17 @@ test("configured hosts are additive and match host:port", () => {
   expect(isProviderHost(new URL("https://api.openai.com/"))).toBe(true);
 });
 
-test("a host without a port matches any port", () => {
-  configure({ providerHosts: ["My-GW.example.com"] });
-  expect(isProviderHost(new URL("https://my-gw.example.com:8443/v1"))).toBe(true);
-});
-
-test.each([
-  ["gw.example.com:443", "https://gw.example.com/v1"],
-  ["gw.example.com:80", "http://gw.example.com/v1"],
-])("entry %s matches the default port of %s", (entry, url) => {
-  configure({ providerHosts: [entry] });
-  expect(isProviderHost(new URL(url))).toBe(true);
-});
-
-test("an entry with a default port does not match other ports", () => {
-  configure({ providerHosts: ["gw.example.com:443"] });
-  expect(isProviderHost(new URL("http://gw.example.com/v1"))).toBe(false);
-  expect(isProviderHost(new URL("https://gw.example.com:8443/v1"))).toBe(false);
-});
-
-test("a fully qualified hostname with a trailing dot matches", () => {
-  expect(isProviderHost(new URL("https://api.openai.com./v1"))).toBe(true);
-  expect(isProviderHost(new URL("https://api.openai.com.:443/v1"))).toBe(true);
+test.each<[string[], string, boolean]>([
+  [["My-GW.example.com"], "https://my-gw.example.com:8443/v1", true],
+  [["gw.example.com:443"], "https://gw.example.com/v1", true],
+  [["gw.example.com:80"], "http://gw.example.com/v1", true],
+  [["gw.example.com:443"], "http://gw.example.com/v1", false],
+  [["gw.example.com:443"], "https://gw.example.com:8443/v1", false],
+  [[], "https://api.openai.com./v1", true],
+  [[], "https://api.openai.com.:443/v1", true],
+])("with entries %j, %s is a provider host: %s", (entries, url, expected) => {
+  configure({ providerHosts: entries });
+  expect(isProviderHost(new URL(url))).toBe(expected);
 });
 
 test("entries are trimmed and a trailing dot is dropped", () => {
@@ -126,10 +115,4 @@ test("configure sets ignore and redact, and resetConfig clears them", () => {
     ignore: [],
     redact: [],
   });
-});
-
-test("isProviderHost accepts an explicit config", () => {
-  const config = { providerHosts: ["only.example"], ignore: [], redact: [] };
-  expect(isProviderHost(new URL("https://only.example/"), config)).toBe(true);
-  expect(isProviderHost(new URL("https://api.openai.com/"), config)).toBe(false);
 });

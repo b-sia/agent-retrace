@@ -95,6 +95,9 @@ async function vercelAgent(model: LanguageModel): Promise<void> {
   const args = {
     model,
     prompt: PROMPT,
+    // Set explicitly so the AI SDK does not warn that the fake model is
+    // unknown and pick a limit for it.
+    maxOutputTokens: 1024,
     stopWhen: isStepCount(3),
     tools: {
       get_weather: tool({

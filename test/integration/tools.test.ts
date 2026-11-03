@@ -275,58 +275,42 @@ async function recordThenReplay<T>(name: string, fn: () => Promise<T>): Promise<
   return [live, await replay(name, fn, { dir })];
 }
 
-test("a live tool returns the same JSON copy that replay returns", async () => {
-  const impl = vi.fn(async () => new Order());
-  const getOrder = recordTool("getOrder", impl);
-  const [live, replayed] = await recordThenReplay("t15", () => getOrder());
-  expect(impl).toHaveBeenCalledTimes(1);
-  expect(live).not.toBeInstanceOf(Order);
-  expect(live).toEqual({ id: "A-1", placed: "2026-01-02T03:04:05.000Z" });
-  expect(replayed).toEqual(live);
-});
-
-test("a live tool returns its keys in the order replay returns them", async () => {
-  // Agents often send `JSON.stringify(result)` back to the model, so a key
-  // order that differs between recording and replay changes the next request.
-  // `toEqual` ignores key order; comparing the JSON text does not.
-  const lookup = recordTool("lookup", async () => ({
+test("a live tool returns the same JSON copy, in the same key order, that replay returns", async () => {
+  // Agents often send `JSON.stringify(result)` back to the model, so a result
+  // that differs between recording and replay, even only in key order,
+  // changes the next request. `toEqual` ignores key order; the JSON text does not.
+  configure({ providerHosts: [server.host], redact: [/ORDER-\d+/] });
+  const impl = vi.fn(async () => ({
     id: "B2",
     status: "shipped",
-    carrier: "UPS",
-    lines: [{ sku: "W-1", qty: 1, name: "Throw" }],
     "10": "ten",
     "2": "two",
+    order: new Order(),
+    lines: [{ sku: "W-1", qty: 1, name: "Throw" }],
+    note: "found ORDER-123",
+    items: [1],
   }));
-  const [live, replayed] = await recordThenReplay("t-key-order", () => lookup());
-  expect(JSON.stringify(live)).toBe(JSON.stringify(replayed));
-});
-
-test("a live tool error has its fields in the order replay gives them", async () => {
-  const fetchPage = recordTool("fetchPage", async () => {
-    throw Object.assign(new Error("rate limited"), { code: "E_RATE", status: 429 });
+  const lookup = recordTool("lookup", impl);
+  const [live, replayed] = await recordThenReplay("t-result", async () => {
+    const result = await lookup();
+    const text = JSON.stringify(result);
+    // A caller mutating the live result must not change the recording.
+    result.items.push(2);
+    return { text, isOrder: result.order instanceof Order };
   });
-  const [live, replayed] = await recordThenReplay("t-err-key-order", () => thrown(fetchPage));
-  expect(Object.keys(live)).toEqual(Object.keys(replayed));
-});
-
-test("a live tool returns the redacted value that replay returns", async () => {
-  configure({ providerHosts: [server.host], redact: [/ORDER-\d+/] });
-  const lookup = recordTool("lookup", async () => ({ note: "found ORDER-123" }));
-  const [live, replayed] = await recordThenReplay("t16", () => lookup());
-  expect(live).toEqual({ note: "found [REDACTED]" });
+  expect(impl).toHaveBeenCalledTimes(1);
+  expect(live.isOrder).toBe(false);
+  expect(JSON.parse(live.text)).toEqual({
+    id: "B2",
+    status: "shipped",
+    "10": "ten",
+    "2": "two",
+    order: { id: "A-1", placed: "2026-01-02T03:04:05.000Z" },
+    lines: [{ sku: "W-1", qty: 1, name: "Throw" }],
+    note: "found [REDACTED]",
+    items: [1],
+  });
   expect(replayed).toEqual(live);
-});
-
-test("a caller mutating a live result cannot change the recording", async () => {
-  const list = recordTool("list", async () => ({ items: [1] }));
-  await replay(
-    "t17",
-    async () => {
-      (await list()).items.push(2);
-    },
-    { dir },
-  );
-  expect(await replay("t17", () => list(), { dir })).toEqual({ items: [1] });
 });
 
 /**
@@ -342,67 +326,113 @@ async function thrown(call: () => Promise<unknown>): Promise<Error & Record<stri
   )) as Error & Record<string, unknown>;
 }
 
-test("a live tool error has the same class, name, message and fields as on replay", async () => {
-  const fetchPage = recordTool("fetchPage", async () => {
-    throw new HttpError("rate limited", 429);
-  });
-  const [live, replayed] = await recordThenReplay("t18", () => thrown(fetchPage));
-  for (const err of [live, replayed]) {
-    expect(err).toBeInstanceOf(Error);
-    expect(err).not.toBeInstanceOf(HttpError);
-    expect(err.name).toBe("HttpError");
-    expect(err.message).toBe("rate limited");
-    expect(err.status).toBe(429);
-  }
-});
+/** What a caller can observe of an error, with its own fields in order. */
+interface ErrorView {
+  readonly className: string;
+  readonly name: string;
+  readonly message: string;
+  readonly fields: [string, unknown][];
+  readonly cause?: ErrorView;
+}
 
-test("a built-in error class is rebuilt on replay", async () => {
-  const parse = recordTool("parse", async () => {
-    throw new TypeError("not a number");
-  });
-  const [live, replayed] = await recordThenReplay("t19", () => thrown(parse));
-  expect(live).toBeInstanceOf(TypeError);
-  expect(replayed).toBeInstanceOf(TypeError);
-});
+/**
+ * Describes an error the way a caller sees it, so a live error and its replay
+ * can be compared field by field and in field order.
+ *
+ * @param err - The error.
+ * @returns Its class, name, message, own fields and cause.
+ */
+function view(err: Error): ErrorView {
+  return {
+    className: err.constructor.name,
+    name: err.name,
+    message: err.message,
+    fields: Object.entries(err),
+    ...(err.cause instanceof Error ? { cause: view(err.cause) } : {}),
+  };
+}
 
-test("a Node error code replays, and fields that are not primitives are left out", async () => {
-  const read = recordTool("read", async () => {
-    throw Object.assign(new Error("ENOENT: no such file"), {
-      code: "ENOENT",
-      errno: -2,
-      request: { headers: { authorization: "Bearer secret" } },
-    });
-  });
-  const [live, replayed] = await recordThenReplay("t20", () => thrown(read));
-  for (const err of [live, replayed]) {
-    expect(err.code).toBe("ENOENT");
-    expect(err.errno).toBe(-2);
-    expect(err.request).toBeUndefined();
-  }
-  expect(readFileSync(join(dir, "t20.json"), "utf8")).not.toContain("secret");
-});
-
-test("an error cause replays", async () => {
-  const charge = recordTool("charge", async () => {
-    throw new Error("payment failed", { cause: new RangeError("card expired") });
-  });
-  const [live, replayed] = await recordThenReplay("t21", () => thrown(charge));
-  for (const err of [live, replayed]) {
-    expect(err.cause).toBeInstanceOf(RangeError);
-    expect((err.cause as Error).message).toBe("card expired");
-  }
-});
-
-test("a live tool error message and fields are redacted as on replay", async () => {
+test.each<[string, () => never, ErrorView]>([
+  [
+    "a custom class keeps its name and fields on a plain Error",
+    () => {
+      throw new HttpError("rate limited", 429);
+    },
+    {
+      className: "Error",
+      name: "HttpError",
+      message: "rate limited",
+      fields: [
+        ["name", "HttpError"],
+        ["status", 429],
+      ],
+    },
+  ],
+  [
+    "a built-in class is rebuilt",
+    () => {
+      throw new TypeError("not a number");
+    },
+    { className: "TypeError", name: "TypeError", message: "not a number", fields: [] },
+  ],
+  [
+    "a Node error code is kept and fields that are not primitives are left out",
+    () => {
+      throw Object.assign(new Error("ENOENT: no such file"), {
+        code: "ENOENT",
+        errno: -2,
+        request: { headers: { authorization: "Bearer secret" } },
+      });
+    },
+    {
+      className: "Error",
+      name: "Error",
+      message: "ENOENT: no such file",
+      fields: [
+        ["code", "ENOENT"],
+        ["errno", -2],
+      ],
+    },
+  ],
+  [
+    "a cause is kept",
+    () => {
+      throw new Error("payment failed", { cause: new RangeError("card expired") });
+    },
+    {
+      className: "Error",
+      name: "Error",
+      message: "payment failed",
+      fields: [],
+      cause: { className: "RangeError", name: "RangeError", message: "card expired", fields: [] },
+    },
+  ],
+  [
+    "the message and fields are redacted",
+    () => {
+      throw Object.assign(new Error("cannot cancel ORDER-123"), { order: "ORDER-123" });
+    },
+    {
+      className: "Error",
+      name: "Error",
+      message: "cannot cancel [REDACTED]",
+      fields: [["order", "[REDACTED]"]],
+    },
+  ],
+  [
+    "a thrown non-Error becomes an Error",
+    () => {
+      throw "plain string";
+    },
+    { className: "Error", name: "Error", message: "plain string", fields: [] },
+  ],
+])("a live tool error is the error replay throws: %s", async (_, fail, expected) => {
   configure({ providerHosts: [server.host], redact: [/ORDER-\d+/] });
-  const cancel = recordTool("cancel", async () => {
-    throw Object.assign(new Error("cannot cancel ORDER-123"), { order: "ORDER-123" });
-  });
-  const [live, replayed] = await recordThenReplay("t22", () => thrown(cancel));
-  for (const err of [live, replayed]) {
-    expect(err.message).toBe("cannot cancel [REDACTED]");
-    expect(err.order).toBe("[REDACTED]");
-  }
+  const tool = recordTool("fail", async () => fail());
+  const [live, replayed] = await recordThenReplay("t-error", () => thrown(tool));
+  expect(view(live)).toEqual(expected);
+  expect(view(replayed)).toEqual(view(live));
+  expect(readFileSync(join(dir, "t-error.json"), "utf8")).not.toMatch(/secret|ORDER-123/);
 });
 
 test("a live tool error keeps the tool's stack", async () => {
@@ -413,17 +443,6 @@ test("a live tool error keeps the tool's stack", async () => {
   expect(err.stack).toContain("failingToolBody");
 });
 
-test("a live tool that throws a non-Error throws the Error that replay throws", async () => {
-  const legacy = recordTool("legacy", async () => {
-    throw "plain string";
-  });
-  const [live, replayed] = await recordThenReplay("t24", () => thrown(legacy));
-  for (const err of [live, replayed]) {
-    expect(err).toBeInstanceOf(Error);
-    expect(err.message).toBe("plain string");
-  }
-});
-
 test("a key seen in a provider request header is scrubbed from later tool steps, which still replay", async () => {
   // chat() sends "Bearer sk-test-SECRET123"; no key is set in the environment.
   const impl = vi.fn(async (note: string) => `saw ${note}`);
@@ -432,7 +451,7 @@ test("a key seen in a provider request header is scrubbed from later tool steps,
     await chat(server, "hi");
     return echo("key sk-test-SECRET123");
   };
-  // A live call returns what replay will (see "a live tool returns the redacted value that replay returns").
+  // A live call returns what replay will (see "a live tool returns the same JSON copy, in the same key order, that replay returns").
   expect(await replay("t-secret", agent, { dir })).toBe("saw key [REDACTED]");
   const text = readFileSync(join(dir, "t-secret.json"), "utf8");
   expect(text).not.toContain("sk-test-SECRET123");
