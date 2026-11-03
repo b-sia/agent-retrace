@@ -1,0 +1,17 @@
+flowchart TD
+  test["Your test"] --> replay["replay(name, fn)"]
+  replay --> agent["Your agent code"]
+
+  agent --> sdk["OpenAI / Anthropic /<br/>Vercel AI SDK"]
+  sdk --> fetch["fetch (undici)"]
+  fetch --> interceptor{{"agent-retrace<br/>HTTP interceptor"}}
+
+  agent --> wrapper{{"recordTool()<br/>wrapper"}}
+
+  interceptor -. "only when<br/>recording" .-> api["Provider API"]
+  interceptor <--> file[("__recordings__/<br/>name.json")]
+  wrapper <--> file
+  wrapper -. "only when<br/>recording" .-> tool["Your real tool<br/>(DB, HTTP, ...)"]
+
+  classDef ours fill:#e8f0fe,stroke:#3367d6,color:#1a1a1a
+  class replay,interceptor,wrapper ours

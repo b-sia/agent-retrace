@@ -11,6 +11,23 @@ Record your agent's LLM and tool calls once, replay them offline in every test r
 
 Requires Node.js 22 or newer and ESM.
 
+## Why record and replay?
+
+Testing an agent against a real LLM is slow, costs tokens on every run, needs an API key in CI and is flaky: the model can answer differently each time, so a test can fail when nothing in your code changed. Hand-written mocks of the SDK avoid that, but they drift from what the provider really returns and never notice when your prompt or tools change.
+
+Record and replay sits in between. The test runs against the real API once, and every request and response is saved to a file. From then on the saved responses are served instead, so tests are:
+
+- **Deterministic:** the same model output on every run.
+- **Fast, free and offline:** no network, no tokens, no API key.
+- **Realistic:** the responses are the provider's own, streaming included.
+- **A regression check:** each request the agent sends is compared with the recorded one, so a changed prompt, tool schema or model setting shows up as a diff, like a snapshot test.
+
+agent-retrace hooks in below the SDKs, at the HTTP layer, and wraps your tools, so your agent code stays as it is:
+
+![Your test calls replay(), which runs your agent. The agent's LLM SDK goes through the agent-retrace HTTP interceptor and its tools through the recordTool() wrapper. Both read and write the recording file, and reach the provider API or your real tool only when recording.](docs/diagrams/overview.svg)
+
+[How record and replay works](docs/guide/how-it-works.md) walks through the first run, later runs and a changed agent step by step, with diagrams.
+
 ## Quick start
 
 ```sh
@@ -84,6 +101,7 @@ export const lookupOrder = recordTool("lookup_order", async (orderId: string) =>
 
 ## Documentation
 
+- [How record and replay works](docs/guide/how-it-works.md) - why record and replay, where agent-retrace sits, and what happens on each run, with diagrams
 - [Modes and change reports](docs/guide/modes.md) - `replay`, `auto` and `update`, and what a change report contains
 - [Recording tool calls](docs/guide/recording-tools.md) - `recordTool` details, argument selection, Vercel AI SDK tools
 - [Configuration](docs/guide/configuration.md) - provider hosts, redaction, ignored fields

@@ -1,0 +1,29 @@
+---
+config:
+  sequence:
+    actorMargin: 20
+    width: 110
+    messageMargin: 30
+---
+sequenceDiagram
+  autonumber
+  participant Test as Your test
+  participant Agent as Your agent
+  participant AR as agent-retrace
+  participant File as Recording file
+
+  Test->>AR: replay(name, fn)
+  AR->>File: load steps 1 to 3
+  AR->>Agent: run fn()
+  Agent->>AR: LLM request
+  Note over AR: matches step 1
+  AR-->>Agent: recorded "call lookup_order"
+  Agent->>AR: lookup_order call
+  Note over AR: matches step 2, tool does not run
+  AR-->>Agent: recorded result
+  Agent->>AR: LLM request
+  Note over AR: matches step 3
+  AR-->>Agent: recorded final answer
+  Agent-->>AR: fn returns
+  Note over AR: every step used?<br/>yes: pass, no: ChangeDetectedError
+  AR-->>Test: replay() returns
