@@ -1,0 +1,23 @@
+flowchart TD
+  start(["replay(name, fn) starts"]) --> has{"Recording<br/>exists?"}
+  has -- no --> rec["Record every call live<br/>(replay mode: fail with<br/>RecordingNotFoundError)"]
+
+  has -- yes --> step(["For each provider call<br/>or wrapped tool call"])
+  step --> match{"Matches an<br/>unused step?"}
+  match -- yes --> play["Serve the<br/>recorded result"]
+  match -- no --> upd{"update<br/>mode?"}
+  upd -- yes --> live["Go live,<br/>re-record the rest"]
+  upd -- no --> fail["Fail:<br/>ChangeDetectedError"]
+
+  play -- "after the last call" --> done{"Recorded steps<br/>left unused?"}
+  done -- no --> pass(["Pass"])
+  done -- yes --> upd2{"update<br/>mode?"}
+  upd2 -- yes --> drop["Save the recording<br/>without them"]
+  upd2 -- no --> fail2["Fail:<br/>ChangeDetectedError"]
+
+  classDef ok fill:#e6f4ea,stroke:#188038,color:#1a1a1a
+  classDef bad fill:#fde8e8,stroke:#c5221f,color:#1a1a1a
+  classDef liveStyle fill:#fef7e0,stroke:#e37400,color:#1a1a1a
+  class play,pass ok
+  class fail,fail2 bad
+  class rec,live,drop liveStyle

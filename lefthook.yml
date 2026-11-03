@@ -3,3 +3,6 @@ pre-commit:
     biome:
       run: npx biome check --write --no-errors-on-unmatched {staged_files}
       stage_fixed: true
+    diagrams:
+      glob: "docs/diagrams/*"
+      run: npm run --silent docs:diagrams:check

@@ -1,0 +1,13 @@
+flowchart TD
+  l1["This run, step 1 (llm):<br/>system prompt edited"]
+
+  subgraph recording["Recording on disk"]
+    direction LR
+    r1["1 llm"] --> r2["2 tool<br/>lookup_order"] --> r3["3 tool<br/>search_policies"] --> r4["4 llm"] --> r5["5 tool<br/>issue_refund"] --> r6["6 llm"]
+  end
+
+  l1 -. "no match for step 1" .-> recording
+  l1 --> err["ChangeDetectedError:<br/>Your agent changed at step 1 of 6<br/>+ Always offer a discount code."]
+
+  classDef changed fill:#fde8e8,stroke:#c5221f,color:#1a1a1a
+  class l1,err changed

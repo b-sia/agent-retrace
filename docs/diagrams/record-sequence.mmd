@@ -1,0 +1,36 @@
+---
+config:
+  sequence:
+    actorMargin: 10
+    width: 100
+    messageMargin: 30
+---
+sequenceDiagram
+  autonumber
+  participant Test as Your test
+  participant Agent as Your agent
+  participant AR as agent-retrace
+  participant API as Provider API
+  participant Tool as Your tool
+  participant File as Recording file
+
+  Test->>AR: replay(name, fn)
+  AR->>Agent: run fn()
+  Agent->>AR: LLM request
+  AR->>API: forward it
+  API-->>AR: "call lookup_order"
+  AR-->>Agent: same response
+  Note over AR: keep step 1 (llm)
+  Agent->>AR: lookup_order call
+  AR->>Tool: run the tool
+  Tool-->>AR: order B2 shipped
+  AR-->>Agent: same result
+  Note over AR: keep step 2 (tool)
+  Agent->>AR: LLM request
+  AR->>API: forward it
+  API-->>AR: final answer
+  AR-->>Agent: same response
+  Note over AR: keep step 3 (llm)
+  Agent-->>AR: fn returns
+  AR->>File: write steps 1 to 3
+  AR-->>Test: replay() returns

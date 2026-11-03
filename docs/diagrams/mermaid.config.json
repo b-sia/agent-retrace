@@ -1,0 +1,5 @@
+{
+  "theme": "default",
+  "htmlLabels": false,
+  "flowchart": { "htmlLabels": false, "wrappingWidth": 400, "minNodeWidth": 0, "nodeSpacing": 30 }
+}

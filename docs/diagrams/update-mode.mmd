@@ -1,0 +1,7 @@
+flowchart LR
+  n1["1 llm<br/>replayed"] --> n2["2 tool<br/>lookup_order<br/>replayed"] --> n3["3 tool<br/>search_policies<br/>replayed"] --> n4["4 llm<br/>replayed"] --> n5["5 tool<br/>issue_refund<br/>live"] --> n6["6 llm<br/>live"]
+
+  classDef kept fill:#e6f4ea,stroke:#188038,color:#1a1a1a
+  classDef live fill:#fef7e0,stroke:#e37400,color:#1a1a1a
+  class n1,n2,n3,n4 kept
+  class n5,n6 live
