@@ -17,6 +17,9 @@ import { resetConfig } from "../../src/config.js";
 import { configure, recordTool, replay } from "../../src/index.js";
 import { type FakeProvider, startFakeProvider, toolThenText } from "../support/fake-provider.js";
 
+// The fake models are unknown to the AI SDK, which warns about each call.
+globalThis.AI_SDK_LOG_WARNINGS = false;
+
 const API_KEY = "sk-test-SECRET123456";
 const PROMPT = `My key is ${API_KEY}. What is the weather in Paris?`;
 
