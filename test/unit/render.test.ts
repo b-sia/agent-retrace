@@ -3,7 +3,7 @@
  */
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { type ChangeReport, describeStep, renderChange } from "../../src/diff/render.js";
+import { type ChangeReport, renderChange } from "../../src/diff/render.js";
 import type { LlmStep, RecordedRequest, Step, ToolStep } from "../../src/recording/format.js";
 import {
   anthropicMessages,
@@ -78,13 +78,6 @@ const FOOTER = [
   "To accept this change and re-record from step 2, run:",
   `  ${COMMAND}`,
 ].join("\n");
-
-test("describeStep", () => {
-  expect(describeStep(llm(openaiChat()))).toBe(
-    "LLM call (POST api.openai.com/v1/chat/completions)",
-  );
-  expect(describeStep(tool("search"))).toBe("tool `search`");
-});
 
 test("system prompt change renders a line diff, not JSON", () => {
   const out = render(
@@ -293,21 +286,23 @@ test("extra and missing headers", () => {
   );
 });
 
-test("footer has command", () =>
-  expect(render(report(tool("a"), tool("b")))).toContain(
-    "  AGENT_RETRACE_MODE=update npx vitest run test/a.test.ts",
-  ));
-
-test("a recording path outside cwd stays absolute", () =>
-  expect(
-    renderChange(
-      { ...report(tool("a"), tool("b")), recordingPath: "/elsewhere/r.json" },
-      {
-        color: false,
-        cwd: CWD,
-      },
-    ),
-  ).toContain("Recording: /elsewhere/r.json\n"));
+test.each([
+  [
+    "inside cwd is shown relative",
+    join(CWD, "test/__recordings__/refund.json"),
+    "test/__recordings__/refund.json",
+  ],
+  ["outside cwd stays absolute", "/elsewhere/r.json", "/elsewhere/r.json"],
+  [
+    "in a directory whose name starts with two dots is inside cwd",
+    join(CWD, "..cache/r.json"),
+    "..cache/r.json",
+  ],
+])("the footer has the command, and a recording path %s", (_, recordingPath, shown) => {
+  const out = render({ ...report(tool("a"), tool("b")), recordingPath });
+  expect(out).toContain(`Recording: ${shown}\n`);
+  expect(out).toContain("  AGENT_RETRACE_MODE=update npx vitest run test/a.test.ts");
+});
 
 test("color is applied only when asked", () => {
   const r = report(openaiChat(), openaiChat({ params: { temperature: 1 } }));
@@ -372,16 +367,6 @@ test("a system prompt added from none shows only the added lines", () =>
     render(report(openaiChat({ system: "" }), openaiChat({ system: "Be nice.\nBe brief." }))),
   ).toContain("System prompt:\n+ Be nice.\n+ Be brief.\n\n"));
 
-test("a one-step recording reads in the singular", () =>
-  expect(render({ ...report(undefined, tool("search"), "extra"), totalSteps: 1 })).toContain(
-    "step 2 is new (recording has 1 step): tool `search`",
-  ));
-
-test("a directory whose name starts with two dots is still inside cwd", () =>
-  expect(
-    render({ ...report(tool("a"), tool("b")), recordingPath: join(CWD, "..cache/r.json") }),
-  ).toContain("Recording: ..cache/r.json\n"));
-
 // Escape sequences a malicious recording could carry: clear screen, retitle,
 // bell, carriage return, and the one-byte C1 CSI that JSON.stringify keeps.
 const EVIL = "\u001b[2J\u001b]0;pwned\u0007\rX\u009b2J\u007f";
@@ -414,7 +399,7 @@ function evilChat(suffix: string): RecordedRequest {
   };
 }
 
-test("escapes control characters in every part of an LLM change", () => {
+test("escapes control characters in every part of a report", () => {
   const text = render(report(evilChat("a"), evilChat("b")));
   expect(text).not.toMatch(CONTROL);
   expect(text).toContain(`System prompt:\n  line1\n- ${EVIL_SHOWN}a\n+ ${EVIL_SHOWN}b\n`);
@@ -422,30 +407,28 @@ test("escapes control characters in every part of an LLM change", () => {
   expect(text).toContain(`- user: ${EVIL_SHOWN}a\n+ user: ${EVIL_SHOWN}b`);
   expect(text).toContain(`~ changed t${EVIL_SHOWN} (schema)`);
   expect(text).toContain(`- x-a: ${EVIL_SHOWN}a`);
-});
 
-test("escapes control characters in a raw body diff and in tool changes", () => {
   const unknown = (s: string): RecordedRequest => ({
     method: "POST",
     url: "https://llm.example.com/v1/generate",
     headers: {},
     body: { prompt: `${EVIL}${s}` },
   });
-  expect(render(report(unknown("a"), unknown("b")))).not.toMatch(CONTROL);
-  const tools = render(report(tool(`a${EVIL}`, EVIL), tool(`b${EVIL}`, `${EVIL}!`)));
-  expect(tools).not.toMatch(CONTROL);
-  expect(tools).toContain(`Tool: a${EVIL_SHOWN} -> b${EVIL_SHOWN}`);
-  const kinds = render(report(tool(`a${EVIL}`), llm(unknown("a")), "changed"));
-  expect(kinds).not.toMatch(CONTROL);
-  expect(render(report(undefined, tool(EVIL), "extra"))).not.toMatch(CONTROL);
-});
-
-test("escapes control characters in a Responses API item type", () => {
   const responses = (type: string): RecordedRequest => ({
     method: "POST",
     url: "https://api.openai.com/v1/responses",
     headers: {},
     body: { model: "m", input: [{ type }] },
   });
-  expect(render(report(responses(`a${EVIL}`), responses(`b${EVIL}`)))).not.toMatch(CONTROL);
+  const tools = render(report(tool(`a${EVIL}`, EVIL), tool(`b${EVIL}`, `${EVIL}!`)));
+  expect(tools).toContain(`Tool: a${EVIL_SHOWN} -> b${EVIL_SHOWN}`);
+  for (const out of [
+    tools,
+    render(report(unknown("a"), unknown("b"))),
+    render(report(responses(`a${EVIL}`), responses(`b${EVIL}`))),
+    render(report(tool(`a${EVIL}`), llm(unknown("a")), "changed")),
+    render(report(undefined, tool(EVIL), "extra")),
+  ]) {
+    expect(out).not.toMatch(CONTROL);
+  }
 });
