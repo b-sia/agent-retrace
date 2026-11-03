@@ -102,6 +102,7 @@ Things to know:
 - Results are stored as JSON. Inside `replay()` the caller gets the stored copy whether the tool ran or not, so a recording run behaves exactly like its replays: a `Date` comes back as its ISO string, a class instance as a plain object.
 - Errors are stored by name, message, primitive fields (`code`, `status`) and cause. Built-in classes such as `TypeError` keep their class; other errors come back as a plain `Error` with the original `name`.
 - To leave an argument out of matching and the recording (a logger, a client handle), pick the ones that count: `recordTool("search", searchImpl, { args: (query, _client) => [query] })`. The tool still receives all of its arguments.
+- **Vercel AI SDK tools:** `execute` is called as `execute(input, options)`, and `options` carries the conversation so far (`messages`). Wrapped as is, every tool step stores the whole conversation and matches on it. Keep only the input: `execute: recordTool("get_weather", getWeather, { args: (input) => [input] })`.
 
 ## Configuration: `configure()`
 
@@ -218,7 +219,7 @@ One pretty-printed JSON file per recording, with stable key order, so it reads a
         "method": "POST",
         "url": "https://api.anthropic.com/v1/messages",
         "headers": { "anthropic-version": "2026-10-21" },
-        "body": { "model": "claude-opus-5-5", "system": "...", "messages": ["..."] }
+        "body": { "messages": ["..."], "model": "claude-opus-5-5", "system": "..." }
       },
       "response": {
         "status": 200,
@@ -247,7 +248,7 @@ One pretty-printed JSON file per recording, with stable key order, so it reads a
 
 ## Limitations
 
-- **Fetch-based clients only.** Interception wraps Node's global undici dispatcher, which `fetch` uses. The OpenAI, Anthropic and Vercel AI SDKs use `fetch`. A provider call made through `node:http` or `node:https` (axios, older clients) throws `ProviderCallBlockedError` rather than going unrecorded.
+- **Fetch-based clients only.** Interception wraps Node's global undici dispatcher, which `fetch` uses. The OpenAI, Anthropic and Vercel AI SDKs use `fetch`. A provider call made through `node:http` or `node:https` (axios, older clients) inside `replay()` or in `replay` mode throws `ProviderCallBlockedError` rather than going unrecorded. Outside `replay()` in the other modes it goes through, unrecorded.
 - **A client given its own undici dispatcher bypasses interception**, e.g. `fetchOptions: { dispatcher: new Agent() }`. Replacing the global dispatcher is fine: `replay()` installs itself on top of whatever is there (msw, nock, a `ProxyAgent`).
 - **No clock or random freezing.** If your agent puts the current time or a random ID into a prompt, that request changes on every run. Add the field to `ignore`, or freeze it yourself (e.g. `vi.useFakeTimers()`).
 - **The full request URL, port included, is part of matching**, so a local fake provider needs a stable origin. Either listen on a fixed port and configure it (`providerHosts: ["127.0.0.1:<port>"]`), or use a fixed hostname routed to a random-port server through an undici `Agent` with a custom `connect` (see [`test/node-test/replay.test.mjs`](test/node-test/replay.test.mjs)). A server on `listen(0)` reached by its real address produces recordings that stop matching on the next run.
