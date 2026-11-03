@@ -10,6 +10,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetConfig } from "../../src/config.js";
 import { configure, replay } from "../../src/index.js";
+import { expectChangeReport } from "../support/change-error.js";
 import { type FakeProvider, startFakeProvider, toolThenText } from "../support/fake-provider.js";
 
 const API_KEY = "sk-test-SECRET123456";
@@ -163,7 +164,8 @@ test("system prompt change -> step 1 of 2 with system diff", async () => {
   await replay("an-sys", () => runAgent(client, false), { dir });
   vi.stubEnv("AGENT_RETRACE_MODE", "replay");
   await fake.close();
-  await expect(
+  await expectChangeReport(
     replay("an-sys", () => runAgent(client, false, "New system prompt"), { dir }),
-  ).rejects.toThrow(/changed at step 1 of 2[\s\S]*System prompt:[\s\S]*\+ New system prompt/);
+    /changed at step 1 of 2[\s\S]*System prompt:[\s\S]*\+ New system prompt/,
+  );
 });

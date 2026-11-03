@@ -11,6 +11,7 @@ import OpenAI from "openai";
 import { afterAll, afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetConfig } from "../../src/config.js";
 import { configure, type Recording, replay } from "../../src/index.js";
+import { expectChangeReport } from "../support/change-error.js";
 import { type FakeProvider, startFakeProvider, toolThenText } from "../support/fake-provider.js";
 
 const API_KEY = "sk-test-SECRET123456";
@@ -242,18 +243,20 @@ test("chat system prompt change -> step 1 of 2 with system diff", async () => {
   await replay("oa-chat-sys", () => runChat(client, false), { dir });
   vi.stubEnv("AGENT_RETRACE_MODE", "replay");
   await fake.close();
-  await expect(
+  await expectChangeReport(
     replay("oa-chat-sys", () => runChat(client, false, "New system prompt"), { dir }),
-  ).rejects.toThrow(/changed at step 1 of 2[\s\S]*System prompt:[\s\S]*\+ New system prompt/);
+    /changed at step 1 of 2[\s\S]*System prompt:[\s\S]*\+ New system prompt/,
+  );
 });
 
 test("responses instructions change -> step 1 of 2 with system diff", async () => {
   await replay("oa-resp-sys", () => runResponses(client, true), { dir });
   vi.stubEnv("AGENT_RETRACE_MODE", "replay");
   await fake.close();
-  await expect(
+  await expectChangeReport(
     replay("oa-resp-sys", () => runResponses(client, true, "New system prompt"), { dir }),
-  ).rejects.toThrow(/changed at step 1 of 2[\s\S]*System prompt:[\s\S]*\+ New system prompt/);
+    /changed at step 1 of 2[\s\S]*System prompt:[\s\S]*\+ New system prompt/,
+  );
 });
 
 test("a client constructed at module load is still intercepted", async () => {

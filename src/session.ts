@@ -5,6 +5,7 @@
  * Pure apart from calling the `save` function it is given, so it is tested
  * without sockets.
  */
+import { stripVTControlCharacters } from "node:util";
 import type { AgentRetraceConfig } from "./config.js";
 import { type ChangeReport, renderChange } from "./diff/render.js";
 import { ChangeDetectedError, ProviderCallBlockedError, ReplayUsageError } from "./errors.js";
@@ -214,10 +215,18 @@ export class Session {
     }
     if (this.firstMismatch) {
       const { report, error } = this.firstMismatch;
-      // The failed decision's error usually comes back out of the agent,
-      // directly or wrapped by the SDK. Wrapping it again would print the
-      // report twice.
-      if (!fnError || causeChainIncludes(fnError.error, error)) throw error;
+      // What the agent threw is usually the refusal coming back: the failed
+      // decision's error itself, wrapped by the SDK, or the SDK's own error
+      // for the 400 refusal, which quotes the report. Keeping any of those as
+      // `cause` would print the report two or three times.
+      if (!fnError || echoesRefusal(fnError.error, error)) {
+        // The error was built inside the HTTP interceptor, after fetch's async
+        // hop, so its stack holds only library frames. Re-capturing it here
+        // points it at the `replay()` call in the test instead. The object
+        // stays the same, so code that caught it still holds the thrown error.
+        Error.captureStackTrace(error, Session.prototype.finish);
+        throw error;
+      }
       throw this.errorOf(report, { cause: fnError.error });
     }
     if (fnError) throw fnError.error;
@@ -399,18 +408,28 @@ export class Session {
 }
 
 /**
- * Whether `target` is `error` itself or anywhere in its `cause` chain.
+ * Whether the error the agent threw is just the refusal of a mismatched call
+ * coming back: `refusal` itself, or an error in the `cause` chain that quotes
+ * its message. SDKs build their own error from the 400 refusal body, quoting
+ * the report as plain text (OpenAI, Vercel AI SDK) or as JSON (Anthropic).
  *
- * @param error - The error to search, e.g. what the agent threw.
- * @param target - The error to look for.
- * @returns True when found.
+ * @param error - What the agent threw.
+ * @param refusal - The error of the failed decision; its message is the report.
+ * @returns True when nothing in `error` adds to the report.
  */
-function causeChainIncludes(error: unknown, target: unknown): boolean {
+function echoesRefusal(error: unknown, refusal: Error): boolean {
+  // The refusal body carries the report without terminal colors.
+  const report = stripVTControlCharacters(refusal.message);
+  const quoted = JSON.stringify(report).slice(1, -1);
   // `seen` guards against a cause chain that loops back on itself.
   const seen = new Set<unknown>();
   let current = error;
   while (current !== undefined && current !== null && !seen.has(current)) {
-    if (current === target) return true;
+    if (current === refusal) return true;
+    const message = current instanceof Error ? current.message : undefined;
+    if (message !== undefined && (message.includes(report) || message.includes(quoted))) {
+      return true;
+    }
     seen.add(current);
     current = (current as { cause?: unknown }).cause;
   }

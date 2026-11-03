@@ -221,6 +221,25 @@ test("a fail error wrapped by the SDK is thrown unwrapped", async () => {
   await expect(s.finish({ error: wrapped })).rejects.toBe(d.error);
 });
 
+test("an SDK error that quotes the report is dropped, not kept as cause", async () => {
+  const { s } = session("strict", rec(llm("a")));
+  const d = s.decideLlm(llm("A!").request);
+  if (d.kind !== "fail") throw new Error("expected fail");
+  // OpenAI-style: the report as plain text after the status.
+  const plain = new Error(`400 ${d.error.message}`);
+  await expect(s.finish({ error: plain })).rejects.toBe(d.error);
+});
+
+test("an SDK error that quotes the report as JSON is dropped, not kept as cause", async () => {
+  const { s } = session("strict", rec(llm("a")));
+  const d = s.decideLlm(llm("A!").request);
+  if (d.kind !== "fail") throw new Error("expected fail");
+  // Anthropic-style: the raw error body, so the report is JSON-escaped.
+  const body = { type: "error", error: { type: "agent_retrace_error", message: d.error.message } };
+  const quoted = new Error(`400 ${JSON.stringify(body)}`);
+  await expect(s.finish({ error: new Error("wrapped", { cause: quoted }) })).rejects.toBe(d.error);
+});
+
 test("fn error rethrown when no mismatch", async () => {
   const { s } = session("strict", rec(llm("a")));
   s.decideLlm(llm("a").request);

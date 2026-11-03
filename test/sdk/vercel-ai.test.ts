@@ -12,6 +12,7 @@ import { generateText, isStepCount, jsonSchema, type LanguageModel, streamText, 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { resetConfig } from "../../src/config.js";
 import { configure, recordTool, replay } from "../../src/index.js";
+import { expectChangeReport } from "../support/change-error.js";
 import { type FakeProvider, startFakeProvider, toolThenText } from "../support/fake-provider.js";
 
 const API_KEY = "sk-test-SECRET123456";
@@ -136,10 +137,11 @@ test.each(Object.entries(MODELS))(
 
     vi.stubEnv("AGENT_RETRACE_MODE", "replay");
     await fake.close();
-    await expect(
+    await expectChangeReport(
       replay("vc-sys", () => runAgent(model(fake), "generateText", execute, "New system prompt"), {
         dir,
       }),
-    ).rejects.toThrow(/changed at step 1 of 3[\s\S]*System prompt:[\s\S]*\+ New system prompt/);
+      /changed at step 1 of 3[\s\S]*System prompt:[\s\S]*\+ New system prompt/,
+    );
   },
 );

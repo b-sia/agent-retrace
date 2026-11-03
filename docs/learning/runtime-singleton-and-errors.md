@@ -57,6 +57,13 @@ dot (`api.openai.com.`), which DNS treats as the same host, so the dot is droppe
 `this.name = new.target.name`, where `new.target` is the class actually being constructed. The
 `cause` option (`new Error(msg, { cause })`) chains errors like Python's `raise ... from err`.
 
+A JavaScript error's stack is captured when the error is constructed, not when it is thrown
+(Python fills `__traceback__` as the exception propagates). An error built deep inside a library
+callback therefore points only at library frames. `Error.captureStackTrace(err, fn)` (V8 only)
+re-captures `err.stack` at the current call site, leaving out `fn` and every frame above it. The
+session uses it so a change report points at the test's `replay()` call. V8 also records
+`await` callers ("async stack traces"), which is why that frame appears at all.
+
 ## Environment variables
 
 `process.env` values are always strings or `undefined`. `CI=false` is a set variable whose value is
