@@ -862,8 +862,8 @@ Tests in `agent.test.ts` (import from `"agent-retrace"`, the published entry):
 - Create: `README.md`, `docs/demo/demo.tape`, `docs/demo/demo.gif`
 - Modify: `package.json` (`description`, `homepage`, `bugs`)
 
-- [ ] **Step 1: Research the comparison.** For each of tomiko, llm-cassette, cassette, retake, agent-replay and agentverify, find the repo/npm/PyPI page and record language, interception level, streaming support, mismatch behavior, partial re-record, and last release date. Every claim in the table links its source. Mark anything unverifiable as "unknown". The comparison must be honest, including where those tools are ahead.
-- [ ] **Step 2: Write `README.md`.** Sections in order:
+- [x] **Step 1: Research the comparison.** For each of tomiko, llm-cassette, cassette, retake, agent-replay and agentverify, find the repo/npm/PyPI page and record language, interception level, streaming support, mismatch behavior, partial re-record, and last release date. Every claim in the table links its source. Mark anything unverifiable as "unknown". The comparison must be honest, including where those tools are ahead.
+- [x] **Step 2: Write `README.md`.** Sections in order:
   1. One-line pitch.
   2. The demo GIF.
   3. Quick start: `npm i -D agent-retrace`, a Vitest example copied from the spec section 6.1, run it, commit `__recordings__`.
@@ -880,9 +880,9 @@ Tests in `agent.test.ts` (import from `"agent-retrace"`, the published entry):
   14. License.
 
   No em dashes.
-- [ ] **Step 3: Record the demo GIF** with VHS (`go install github.com/charmbracelet/vhs@latest`; it needs `ttyd` and `ffmpeg`). Tape, about 20 s: run the example test (passes from recordings), edit the system prompt with `sed`, run again (show the "changed at step 1 of N" diff), run `AGENT_RETRACE_MODE=update` (needs the owner's key; otherwise end the tape at the diff and note it). Output `docs/demo/demo.gif`, at most 2 MB.
-- [ ] **Step 4: Publish readiness:** `npm run ci` passes; `npm pack --dry-run` lists only `dist/**`, `README.md`, `LICENSE` and `package.json`; `npm run check:package` passes; install the packed tarball into a scratch project and run a one-test Vitest file against it. Expected: all pass. Do not run `npm publish`; the owner publishes.
-- [ ] **Step 5: Commit** `docs: add README, demo GIF and comparison`
+- [x] **Step 3: Record the demo GIF** with VHS (`go install github.com/charmbracelet/vhs@latest`; it needs `ttyd` and `ffmpeg`). Tape, about 20 s: run the example test (passes from recordings), edit the system prompt with `sed`, run again (show the "changed at step 1 of N" diff), run `AGENT_RETRACE_MODE=update` (needs the owner's key; otherwise end the tape at the diff and note it). Output `docs/demo/demo.gif`, at most 2 MB. (Done 2026-11-03 without the update-mode part: no API key was available, so the tape ends at the diff.)
+- [x] **Step 4: Publish readiness:** `npm run ci` passes; `npm pack --dry-run` lists only `dist/**`, `README.md`, `LICENSE` and `package.json`; `npm run check:package` passes; install the packed tarball into a scratch project and run a one-test Vitest file against it. Expected: all pass. Do not run `npm publish`; the owner publishes.
+- [x] **Step 5: Commit** `docs: add README, demo GIF and comparison`
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "name": "agent-retrace",
   "version": "0.1.0",
-  "description": "Record and replay LLM calls in agent tests",
+  "description": "Record and replay LLM and tool calls in agent tests, and see the first step where your agent changed",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -24,6 +24,10 @@
     "type": "git",
     "url": "git+https://github.com/b-sia/agent-retrace.git"
   },
+  "homepage": "https://github.com/b-sia/agent-retrace#readme",
+  "bugs": {
+    "url": "https://github.com/b-sia/agent-retrace/issues"
+  },
   "keywords": [
     "llm",
     "agent",
@@ -32,7 +36,10 @@
     "replay",
     "vcr",
     "openai",
-    "anthropic"
+    "anthropic",
+    "vitest",
+    "streaming",
+    "test"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
