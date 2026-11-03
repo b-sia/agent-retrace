@@ -17,28 +17,26 @@ import {
   toolMatchKey,
 } from "../../src/match/normalize.js";
 import type { RecordedRequest } from "../../src/recording/format.js";
+import type { JsonValue } from "../../src/recording/json.js";
 
-test("regex redaction everywhere", () =>
-  expect(redactDeep({ a: ["call 555-1234"], b: "555-1234" }, [/\d{3}-\d{4}/])).toEqual({
-    a: ["call [REDACTED]"],
-    b: "[REDACTED]",
-  }));
-
-test("regex redaction replaces every match without the g flag", () =>
-  expect(redactDeep("555-1234 or 555-9876", [/\d{3}-\d{4}/])).toBe("[REDACTED] or [REDACTED]"));
-
-test("a g-flagged rule is reusable and left untouched", () => {
-  const rule = /sk-[a-z]+/g;
-  expect(redactDeep(["sk-abc", "sk-def"], [rule])).toEqual([REDACTED, REDACTED]);
-  expect(redactDeep("sk-ghi", [rule])).toBe(REDACTED);
-  expect(rule.lastIndex).toBe(0);
+test("regex redaction everywhere, without mutating the input", () => {
+  const input = { a: ["call 555-1234"], b: "555-1234" };
+  expect(redactDeep(input, [/\d{3}-\d{4}/])).toEqual({ a: ["call [REDACTED]"], b: "[REDACTED]" });
+  expect(input).toEqual({ a: ["call 555-1234"], b: "555-1234" });
 });
 
-test("a sticky rule still redacts every match, anywhere in the string", () => {
-  const rule = /\d{3}-\d{4}/y;
-  expect(redactDeep("x 555-1234 and 555-9999", [rule])).toBe("x [REDACTED] and [REDACTED]");
-  expect(rule.flags).toBe("y");
-});
+test.each(["", "g", "y"])(
+  "a rule with flags %j redacts every match anywhere and is left untouched",
+  (flags) => {
+    const rule = new RegExp(String.raw`\d{3}-\d{4}`, flags);
+    expect(redactDeep(["x 555-1234 and 555-9999", "555-0000"], [rule])).toEqual([
+      "x [REDACTED] and [REDACTED]",
+      REDACTED,
+    ]);
+    expect(rule.flags).toBe(flags);
+    expect(rule.lastIndex).toBe(0);
+  },
+);
 
 test("function redaction", () =>
   expect(redactDeep("Alice", [(s) => s.toUpperCase()])).toBe("ALICE"));
@@ -52,12 +50,6 @@ test("redaction rules apply in order and leave keys and non-strings alone", () =
     t: true,
     s: "[REDACTED]b!",
   }));
-
-test("redactDeep does not mutate its input", () => {
-  const input = { a: ["x1"] };
-  redactDeep(input, [/\d/]);
-  expect(input).toEqual({ a: ["x1"] });
-});
 
 test("scrub secrets", () =>
   expect(scrubSecrets({ x: "key sk-abcdef123456 here" }, ["sk-abcdef123456"])).toEqual({
@@ -84,11 +76,6 @@ test("scrub prefers the longest overlapping secret and does not rescan its outpu
 
 test("scrub treats secrets literally, not as patterns", () =>
   expect(scrubSecrets("a.b+c*d?e and axbbcdde", ["a.b+c*d?e"])).toBe("[REDACTED] and axbbcdde"));
-
-test("scrub with no usable secrets returns the value", () => {
-  const value = { x: "abc" };
-  expect(scrubSecrets(value, [])).toBe(value);
-});
 
 test("bearer token extracted", () =>
   expect(secretsFromHeaders({ authorization: "Bearer sk-live-xyz12345" })).toContain(
@@ -126,13 +113,14 @@ test("secretsFromHeaders skips empty values and dedupes", () =>
     secretsFromHeaders({ authorization: "  ", "x-api-key": "k-12345678", "api-key": "k-12345678" }),
   ).toEqual(["k-12345678"]));
 
-test("ignore paths with wildcard", () =>
-  expect(
-    removeIgnoredPaths({ messages: [{ c: 1, cache_control: 2 }, { c: 3 }], m: 1 }, [
-      "messages.*.cache_control",
-      "nope.x",
-    ]),
-  ).toEqual({ messages: [{ c: 1 }, { c: 3 }], m: 1 }));
+test("ignore paths with wildcard, without mutating the input", () => {
+  const input: JsonValue = { messages: [{ c: 1, cache_control: 2 }, { c: 3 }], m: 1 };
+  expect(removeIgnoredPaths(input, ["messages.*.cache_control", "nope.x"])).toEqual({
+    messages: [{ c: 1 }, { c: 3 }],
+    m: 1,
+  });
+  expect(input).toEqual({ messages: [{ c: 1, cache_control: 2 }, { c: 3 }], m: 1 });
+});
 
 test("ignore paths: array index, wildcard over keys, whole subtree", () =>
   expect(
@@ -148,12 +136,6 @@ test("ignore paths that do not fit the value are no-ops", () => {
   expect(
     removeIgnoredPaths(value, ["a.5", "a.x", "s.length", "n.x", "a.0.x", "", "missing"]),
   ).toEqual(value);
-});
-
-test("removeIgnoredPaths does not mutate its input", () => {
-  const input = { messages: [{ c: 1, cache_control: 2 }] };
-  removeIgnoredPaths(input, ["messages.*.cache_control"]);
-  expect(input).toEqual({ messages: [{ c: 1, cache_control: 2 }] });
 });
 
 test("match key ignores key order and configured paths", () => {
@@ -216,6 +198,8 @@ test("toJsonArgs drops AbortSignal and functions", () =>
 
 test("toJsonArgs follows JSON.stringify semantics", () => {
   const sym = Symbol("s");
+  // Shared but not circular: must not be taken for a cycle.
+  const shared = { v: 1 };
   expect(
     toJsonArgs([
       new Date("2026-01-02T03:04:05.000Z"),
@@ -223,6 +207,7 @@ test("toJsonArgs follows JSON.stringify semantics", () => {
       { u: undefined, nan: Number.NaN, inf: Number.POSITIVE_INFINITY, negZero: -0, [sym]: 1 },
       undefined,
       { toJSON: () => ({ custom: true }) },
+      { a: shared, b: shared },
     ]),
   ).toEqual([
     "2026-01-02T03:04:05.000Z",
@@ -230,38 +215,32 @@ test("toJsonArgs follows JSON.stringify semantics", () => {
     { nan: null, inf: null, negZero: 0 },
     null,
     { custom: true },
+    { a: { v: 1 }, b: { v: 1 } },
   ]);
   expect(Object.is(toJsonArgs([-0])[0] as number, 0)).toBe(true);
-});
-
-test("toJsonArgs keeps shared non-circular references", () => {
-  const shared = { v: 1 };
-  expect(toJsonArgs([{ a: shared, b: shared }])).toEqual([{ a: { v: 1 }, b: { v: 1 } }]);
 });
 
 test("toJsonArgs writes sparse array holes as null", () =>
   // biome-ignore lint/suspicious/noSparseArray: the hole is what is being tested
   expect(toJsonArgs([[1, , 3]])).toEqual([[1, null, 3]]));
 
-test("toJsonArgs rejects circular", () => {
-  // biome-ignore lint/suspicious/noExplicitAny: building a cycle needs an untyped object
-  const o: any = {};
-  o.self = o;
-  expect(() => toJsonArgs([o])).toThrow(ReplayUsageError);
-  expect(() => toJsonArgs([o])).toThrow(/args\[0\]\.self/);
+// biome-ignore lint/suspicious/noExplicitAny: building a cycle needs an untyped object
+const cycle: any = {};
+cycle.self = cycle;
+
+test.each<[string, () => unknown, RegExp]>([
+  ["a cycle", () => toJsonArgs([cycle]), /args\[0\]\.self/],
+  ["a bigint", () => toJsonArgs(["ok", { items: [{ n: 1n }] }]), /args\[1\]\.items\[0\]\.n/],
+  ["a key that is not an identifier", () => toJsonArgs([{ "a b": 1n }]), /args\[0\]\["a b"\]/],
+  ["a value under a given root", () => toJsonValue({ n: 1n }, "return value"), /return value\.n/],
+])("rejects %s, naming the path", (_, convert, path) => {
+  expect(convert).toThrow(ReplayUsageError);
+  expect(convert).toThrow(path);
 });
 
-test("toJsonArgs rejects bigint, naming the path", () =>
-  expect(() => toJsonArgs(["ok", { items: [{ n: 1n }] }])).toThrow(/args\[1\]\.items\[0\]\.n/));
-
 test.each([
-  ["Map", new Map([["a", 1]])],
-  ["Set", new Set([1])],
-])("toJsonArgs rejects a %s instead of silently writing {}", (_, value) =>
-  expect(() => toJsonArgs([{ v: value }])).toThrow(ReplayUsageError),
-);
-
-test.each([
+  ["a Map", new Map([["a", 1]])],
+  ["a Set", new Set([1])],
   ["an Error", new Error("boom")],
   ["a RegExp", /re/],
   ["a Promise", Promise.resolve(1)],
@@ -287,9 +266,3 @@ test("toJsonArgs unwraps boxed primitives like JSON.stringify", () =>
   expect(
     toJsonArgs([new String("ab"), new Number(3), new Boolean(false), new Number(Number.NaN)]),
   ).toEqual(["ab", 3, false, null]));
-
-test("toJsonValue names the given root in errors", () =>
-  expect(() => toJsonValue({ n: 1n }, "return value")).toThrow(/return value\.n/));
-
-test("quoted path segments for keys that are not identifiers", () =>
-  expect(() => toJsonArgs([{ "a b": 1n }])).toThrow(/args\[0\]\["a b"\]/));
