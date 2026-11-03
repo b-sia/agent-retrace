@@ -1,0 +1,7 @@
+# Limitations
+
+- **Fetch-based clients only.** Interception wraps Node's global undici dispatcher, which `fetch` uses. The OpenAI, Anthropic and Vercel AI SDKs use `fetch`. A provider call made through `node:http` or `node:https` (axios, older clients) inside `replay()` or in `replay` mode throws `ProviderCallBlockedError` rather than going unrecorded. Outside `replay()` in the other modes it goes through, unrecorded.
+- **A client given its own undici dispatcher bypasses interception**, e.g. `fetchOptions: { dispatcher: new Agent() }`. Replacing the global dispatcher is fine: `replay()` installs itself on top of whatever is there (msw, nock, a `ProxyAgent`).
+- **No clock or random freezing.** If your agent puts the current time or a random ID into a prompt, that request changes on every run. Add the field to [`ignore`](configuration.md#ignored-fields), or freeze it yourself (e.g. `vi.useFakeTimers()`).
+- **The full request URL, port included, is part of matching**, so a local fake provider needs a stable origin. Either listen on a fixed port and configure it (`providerHosts: ["127.0.0.1:<port>"]`), or use a fixed hostname routed to a random-port server through an undici `Agent` with a custom `connect` (see [`test/node-test/replay.test.mjs`](../../test/node-test/replay.test.mjs)). A server on `listen(0)` reached by its real address produces recordings that stop matching on the next run.
+- Node.js 22 or newer, ESM. Deno, Bun and browsers are not tested.

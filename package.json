@@ -1,0 +1,75 @@
+{
+  "name": "agent-retrace",
+  "version": "0.1.0",
+  "description": "Record and replay LLM and tool calls in agent tests, and see the first step where your agent changed",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "agent-retrace": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/b-sia/agent-retrace.git"
+  },
+  "homepage": "https://github.com/b-sia/agent-retrace#readme",
+  "bugs": {
+    "url": "https://github.com/b-sia/agent-retrace/issues"
+  },
+  "keywords": [
+    "llm",
+    "agent",
+    "testing",
+    "record",
+    "replay",
+    "vcr",
+    "openai",
+    "anthropic",
+    "vitest",
+    "streaming",
+    "test"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "npm run build && tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run --project unit",
+    "test:node": "npm run build && node --test \"test/node-test/**/*.test.mjs\"",
+    "test:example": "npm run build && vitest run --project example --passWithNoTests",
+    "check:package": "npm run build && publint && attw --pack . --profile esm-only",
+    "ci": "npm run lint && npm run typecheck && npm test && npm run test:node && npm run test:example && npm run check:package",
+    "prepare": "lefthook install"
+  },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "picocolors": "^1.1.1",
+    "undici": "^7.30.1"
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "^4.0.89",
+    "@ai-sdk/openai": "^4.0.103",
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@biomejs/biome": "^2.6.3",
+    "@types/node": "^22.20.5",
+    "ai": "^7.0.154",
+    "lefthook": "^2.2.2",
+    "openai": "^7.45.0",
+    "publint": "^0.3.25",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

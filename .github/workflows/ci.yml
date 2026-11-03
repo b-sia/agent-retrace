@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Run every Node version to the end, so one failure does not hide
+      # whether the others pass.
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npx biome ci .
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:node
+      - run: npm run check:package
+
+  # Proves the committed example recordings replay with no API key and no
+  # network at all: the tests run in a container with networking disabled.
+  example-offline:
+    runs-on: ubuntu-latest
+    env:
+      # The host installs dependencies, including native binaries such as
+      # rollup's, that then run in the container, so both use exactly the
+      # same Node release on a glibc base.
+      NODE_VERSION: 22.23.4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: >-
+          docker run --rm --network none -e CI=true -v "$PWD":/w -w /w
+          "node:${NODE_VERSION}-bookworm"
+          npx vitest run --project example

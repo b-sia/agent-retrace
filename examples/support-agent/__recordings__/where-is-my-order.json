@@ -1,0 +1,383 @@
+{
+  "formatVersion": 1,
+  "name": "where-is-my-order",
+  "steps": [
+    {
+      "type": "llm",
+      "request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-beta": "server-side-fallback-2026-07-01",
+          "anthropic-version": "2026-10-21"
+        },
+        "body": {
+          "fallbacks": "default",
+          "max_tokens": 16000,
+          "messages": [
+            {
+              "content": "Where is my order B2? It has not arrived yet.",
+              "role": "user"
+            }
+          ],
+          "model": "claude-opus-5-5",
+          "output_config": {
+            "effort": "medium",
+            "format": {
+              "type": "json_schema",
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "refund",
+                      "replace",
+                      "escalate",
+                      "answer"
+                    ]
+                  },
+                  "reply": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action",
+                  "reply"
+                ]
+              }
+            }
+          },
+          "system": "You are a customer support agent for an online home goods store.\nLook up the order before you act on it, and check the store policies before you refund or replace anything.\nRefund damaged or broken items with the issue_refund tool.\nChoose exactly one action: refund, replace, escalate (a human must decide) or answer (you only gave information).\nKeep the reply short and friendly.",
+          "tools": [
+            {
+              "name": "lookup_order",
+              "description": "Looks up an order by id: item, status, total and delivery dates.",
+              "input_schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "orderId"
+                ]
+              },
+              "strict": true
+            },
+            {
+              "name": "issue_refund",
+              "description": "Refunds an order in full.",
+              "input_schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "orderId",
+                  "reason"
+                ]
+              },
+              "strict": true
+            },
+            {
+              "name": "search_policies",
+              "description": "Searches the store policies.",
+              "input_schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              },
+              "strict": true
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "request-id": "req_011CgdrciguwPkXHPnNdsfkA"
+        },
+        "body": {
+          "type": "message",
+          "container": null,
+          "content": [
+            {
+              "name": "lookup_order",
+              "type": "tool_use",
+              "caller": {
+                "type": "direct"
+              },
+              "id": "toolu_01JjAqvVzEM51YFzDKaWJqou",
+              "input": {
+                "orderId": "B2"
+              }
+            }
+          ],
+          "diagnostics": null,
+          "id": "msg_011Cgdrcj3VxE3a9X6dmcX8Q",
+          "model": "claude-opus-5-5",
+          "role": "assistant",
+          "stop_details": null,
+          "stop_reason": "tool_use",
+          "stop_sequence": null,
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 951,
+            "iterations": [
+              {
+                "type": "message",
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 951,
+                "model": null,
+                "output_tokens": 52
+              }
+            ],
+            "output_tokens": 52,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard",
+            "speed": "standard"
+          }
+        }
+      }
+    },
+    {
+      "name": "lookup_order",
+      "type": "tool",
+      "args": [
+        {
+          "orderId": "B2"
+        }
+      ],
+      "outcome": {
+        "type": "return",
+        "value": {
+          "status": "shipped",
+          "carrier": "UPS",
+          "expectedOn": "2026-11-05",
+          "id": "B2",
+          "item": "Wool throw blanket",
+          "totalCents": 6400
+        }
+      }
+    },
+    {
+      "type": "llm",
+      "request": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "headers": {
+          "anthropic-beta": "server-side-fallback-2026-07-01",
+          "anthropic-version": "2026-10-21"
+        },
+        "body": {
+          "fallbacks": "default",
+          "max_tokens": 16000,
+          "messages": [
+            {
+              "content": "Where is my order B2? It has not arrived yet.",
+              "role": "user"
+            },
+            {
+              "content": [
+                {
+                  "name": "lookup_order",
+                  "type": "tool_use",
+                  "caller": {
+                    "type": "direct"
+                  },
+                  "id": "toolu_01JjAqvVzEM51YFzDKaWJqou",
+                  "input": {
+                    "orderId": "B2"
+                  }
+                }
+              ],
+              "role": "assistant"
+            },
+            {
+              "content": [
+                {
+                  "type": "tool_result",
+                  "content": "{\"status\":\"shipped\",\"carrier\":\"UPS\",\"expectedOn\":\"2026-11-05\",\"id\":\"B2\",\"item\":\"Wool throw blanket\",\"totalCents\":6400}",
+                  "tool_use_id": "toolu_01JjAqvVzEM51YFzDKaWJqou"
+                }
+              ],
+              "role": "user"
+            }
+          ],
+          "model": "claude-opus-5-5",
+          "output_config": {
+            "effort": "medium",
+            "format": {
+              "type": "json_schema",
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "refund",
+                      "replace",
+                      "escalate",
+                      "answer"
+                    ]
+                  },
+                  "reply": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action",
+                  "reply"
+                ]
+              }
+            }
+          },
+          "system": "You are a customer support agent for an online home goods store.\nLook up the order before you act on it, and check the store policies before you refund or replace anything.\nRefund damaged or broken items with the issue_refund tool.\nChoose exactly one action: refund, replace, escalate (a human must decide) or answer (you only gave information).\nKeep the reply short and friendly.",
+          "tools": [
+            {
+              "name": "lookup_order",
+              "description": "Looks up an order by id: item, status, total and delivery dates.",
+              "input_schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "orderId"
+                ]
+              },
+              "strict": true
+            },
+            {
+              "name": "issue_refund",
+              "description": "Refunds an order in full.",
+              "input_schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "orderId": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "orderId",
+                  "reason"
+                ]
+              },
+              "strict": true
+            },
+            {
+              "name": "search_policies",
+              "description": "Searches the store policies.",
+              "input_schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ]
+              },
+              "strict": true
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json",
+          "request-id": "req_011Cgdz4TPwnoaUCQ1PzBFee"
+        },
+        "body": {
+          "type": "message",
+          "container": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"action\":\"answer\",\"reply\":\"Good news: your order B2 (Wool throw blanket) has shipped with UPS and should arrive by November 5, 2026. If it still hasn't come by then, just let us know and we'll look into it for you!\"}"
+            }
+          ],
+          "diagnostics": null,
+          "id": "msg_011Cgdz4TnGBqfL2Rajaov58",
+          "model": "claude-opus-5-5",
+          "role": "assistant",
+          "stop_details": null,
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "usage": {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 0,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "inference_geo": "global",
+            "input_tokens": 1066,
+            "iterations": [
+              {
+                "type": "message",
+                "cache_creation": {
+                  "ephemeral_1h_input_tokens": 0,
+                  "ephemeral_5m_input_tokens": 0
+                },
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "input_tokens": 1066,
+                "model": null,
+                "output_tokens": 82
+              }
+            ],
+            "output_tokens": 82,
+            "output_tokens_details": {
+              "thinking_tokens": 0
+            },
+            "service_tier": "standard",
+            "speed": "standard"
+          }
+        }
+      }
+    }
+  ]
+}
