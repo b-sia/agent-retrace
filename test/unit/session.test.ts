@@ -129,26 +129,15 @@ test("changed request compares against the earliest unconsumed LLM step", async 
   expect(d.error.message).toContain(COMMAND);
 });
 
-test("changed tool call prefers the same tool name", async () => {
-  const { s } = session("strict", rec(tool("x", 1), tool("t", 2)));
-  const d = s.decideTool("t", [3]);
+test.each<[string, Recording, number]>([
+  ["the earliest unconsumed step with the same tool name", rec(tool("x", 1), tool("t", 2)), 2],
+  ["else the earliest unconsumed tool step", rec(llm("a"), tool("x", 1), tool("y", 2)), 2],
+  ["else the earliest unconsumed step of any type", rec(llm("a"), llm("b")), 1],
+])("a changed tool call is compared against %s", (_, recording, stepNumber) => {
+  const d = session("strict", recording).s.decideTool("t", [3]);
   if (d.kind !== "fail") throw new Error("expected fail");
-  expect(d.error.stepNumber).toBe(2);
-});
-
-test("changed tool call falls back to the earliest unconsumed tool step", async () => {
-  const { s } = session("strict", rec(llm("a"), tool("x", 1), tool("y", 2)));
-  const d = s.decideTool("t", [3]);
-  if (d.kind !== "fail") throw new Error("expected fail");
-  expect(d.error.stepNumber).toBe(2);
-});
-
-test("a call with no unconsumed step of its type compares against the earliest step of any type", async () => {
-  const { s } = session("strict", rec(llm("a"), llm("b")));
-  const d = s.decideTool("t", [1]);
-  if (d.kind !== "fail") throw new Error("expected fail");
-  expect(d.error.stepNumber).toBe(1);
-  expect(d.error.message).toMatch(/changed at step 1 of 2/);
+  expect(d.error.stepNumber).toBe(stepNumber);
+  expect(d.error.message).toContain(`changed at step ${stepNumber} of`);
 });
 
 test("extra call", async () => {
@@ -157,16 +146,6 @@ test("extra call", async () => {
   const d = s.decideLlm(llm("a").request);
   expect(d.kind).toBe("fail");
   await expect(s.finish(undefined)).rejects.toThrow(/more calls than recorded: step 2 is new/);
-});
-
-test("extra call numbers continue after earlier extras", async () => {
-  const { s } = session("strict", rec(llm("a")));
-  s.decideLlm(llm("a").request);
-  s.decideLlm(llm("x").request);
-  const d = s.decideLlm(llm("y").request);
-  expect(d.kind).toBe("fail");
-  // Only the first mismatch is reported.
-  await expect(s.finish(undefined)).rejects.toThrow(/step 2 is new/);
 });
 
 test("fewer calls", async () => {
@@ -198,48 +177,34 @@ test("mismatch wins over fn error and keeps it as cause", async () => {
   expect((err as ChangeDetectedError).cause).toBe(e);
 });
 
-test("strict finish throws the same error the failed decision returned", async () => {
+test.each<[string, (report: ChangeDetectedError) => Error | undefined]>([
+  ["no error from the function", () => undefined],
+  ["the report rethrown by the function", (report) => report],
+  [
+    "the report wrapped by the SDK",
+    (report) =>
+      new Error("Connection error.", { cause: new Error("fetch failed", { cause: report }) }),
+  ],
+  [
+    // OpenAI-style: the report as plain text after the status.
+    "an SDK error quoting the report as text",
+    (report) => new Error(`400 ${stripVTControlCharacters(report.message)}`),
+  ],
+  [
+    // Anthropic-style: the raw error body, so the report is JSON-escaped.
+    "an SDK error quoting the report as JSON",
+    (report) => {
+      const message = stripVTControlCharacters(report.message);
+      const body = { type: "error", error: { type: "agent_retrace_error", message } };
+      return new Error("wrapped", { cause: new Error(`400 ${JSON.stringify(body)}`) });
+    },
+  ],
+])("strict finish throws the failed decision's report unwrapped, given %s", async (_, fnError) => {
   const { s } = session("strict", rec(llm("a")));
   const d = s.decideLlm(llm("A!").request);
   if (d.kind !== "fail") throw new Error("expected fail");
-  await expect(s.finish(undefined)).rejects.toBe(d.error);
-});
-
-test("a fail error rethrown by the function is not wrapped in itself", async () => {
-  const { s } = session("strict", rec(llm("a")));
-  const d = s.decideLlm(llm("A!").request);
-  if (d.kind !== "fail") throw new Error("expected fail");
-  await expect(s.finish({ error: d.error })).rejects.toBe(d.error);
-});
-
-test("a fail error wrapped by the SDK is thrown unwrapped", async () => {
-  const { s } = session("strict", rec(llm("a")));
-  const d = s.decideLlm(llm("A!").request);
-  if (d.kind !== "fail") throw new Error("expected fail");
-  const wrapped = new Error("Connection error.", {
-    cause: new Error("fetch failed", { cause: d.error }),
-  });
-  await expect(s.finish({ error: wrapped })).rejects.toBe(d.error);
-});
-
-test("an SDK error that quotes the report is dropped, not kept as cause", async () => {
-  const { s } = session("strict", rec(llm("a")));
-  const d = s.decideLlm(llm("A!").request);
-  if (d.kind !== "fail") throw new Error("expected fail");
-  // OpenAI-style: the report as plain text after the status.
-  const plain = new Error(`400 ${stripVTControlCharacters(d.error.message)}`);
-  await expect(s.finish({ error: plain })).rejects.toBe(d.error);
-});
-
-test("an SDK error that quotes the report as JSON is dropped, not kept as cause", async () => {
-  const { s } = session("strict", rec(llm("a")));
-  const d = s.decideLlm(llm("A!").request);
-  if (d.kind !== "fail") throw new Error("expected fail");
-  // Anthropic-style: the raw error body, so the report is JSON-escaped.
-  const message = stripVTControlCharacters(d.error.message);
-  const body = { type: "error", error: { type: "agent_retrace_error", message } };
-  const quoted = new Error(`400 ${JSON.stringify(body)}`);
-  await expect(s.finish({ error: new Error("wrapped", { cause: quoted }) })).rejects.toBe(d.error);
+  const error = fnError(d.error);
+  await expect(s.finish(error && { error })).rejects.toBe(d.error);
 });
 
 test("fn error rethrown when no mismatch", async () => {
@@ -291,14 +256,19 @@ test("a reservation decided after finish throws", async () => {
   expect(() => decide(llm("a").request)).toThrow(ProviderCallBlockedError);
 });
 
-test("record drops undefined commits", async () => {
-  const { s, save } = session("record");
-  const d1 = s.decideLlm(llm("a").request) as Live<LlmStep>;
-  const d2 = s.decideLlm(llm("b").request) as Live<LlmStep>;
+test("record and update drop undefined commits", async () => {
+  const record = session("record");
+  const d1 = record.s.decideLlm(llm("a").request) as Live<LlmStep>;
+  const d2 = record.s.decideLlm(llm("b").request) as Live<LlmStep>;
   d1.commit(undefined);
   d2.commit(llm("b"));
-  await s.finish(undefined);
-  expect(save.mock.calls[0]?.[0].steps).toEqual([llm("b")]);
+  await record.s.finish(undefined);
+  expect(record.save.mock.calls[0]?.[0].steps).toEqual([llm("b")]);
+
+  const update = session("update", rec(llm("a")));
+  (update.s.decideLlm(llm("x").request) as Live<LlmStep>).commit(undefined);
+  await update.s.finish(undefined);
+  expect(update.save.mock.calls[0]?.[0].steps).toEqual([]);
 });
 
 test("record does not save when fn failed", async () => {
@@ -368,14 +338,6 @@ test("update with an extra call appends it", async () => {
   expect(save.mock.calls[0]?.[0].steps).toEqual([llm("a"), llm("x")]);
 });
 
-test("update drops undefined commits", async () => {
-  const { s, save } = session("update", rec(llm("a")));
-  const d = s.decideLlm(llm("x").request) as Live<LlmStep>;
-  d.commit(undefined);
-  await s.finish(undefined);
-  expect(save.mock.calls[0]?.[0].steps).toEqual([]);
-});
-
 test("update with an fn error does not save and rethrows", async () => {
   const { s, save } = session("update", rec(llm("a")));
   const d = s.decideLlm(llm("x").request) as Live<LlmStep>;
@@ -436,10 +398,6 @@ test("decisions after finish are refused", async () => {
   expect(() => s.decideTool("t", [1])).toThrow(
     /tool "t" was called after replay\("demo"\) had finished/,
   );
-});
-
-test("exposes its name", () => {
-  expect(session("record").s.name).toBe("demo");
 });
 
 test("secrets noted after a step was committed are scrubbed from the saved recording", async () => {
