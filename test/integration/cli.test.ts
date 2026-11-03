@@ -127,7 +127,7 @@ describe("formatTimeline", () => {
     );
   });
 
-  test("shows a thrown tool outcome", () => {
+  test("shows a thrown tool outcome and a tool that returned nothing", () => {
     const text = formatTimeline(
       recording([
         {
@@ -136,26 +136,21 @@ describe("formatTimeline", () => {
           args: ["A1", 30],
           outcome: { type: "throw", name: "RangeError", message: "amount too high\nretry later" },
         },
+        { type: "tool", name: "noop", args: [], outcome: { type: "return" } },
       ]),
       { color: false },
     );
     expect(text).toBe(
       [
-        "inline  (1 step, format v1)",
+        "inline  (2 steps, format v1)",
         "",
         ' 1  tool  issue_refund("A1",30)',
         "        < throws RangeError: amount too high\\nretry later",
+        " 2  tool  noop()",
+        "        < undefined",
         "",
       ].join("\n"),
     );
-  });
-
-  test("shows a tool that returned nothing", () => {
-    const text = formatTimeline(
-      recording([{ type: "tool", name: "noop", args: [], outcome: { type: "return" } }]),
-      { color: false },
-    );
-    expect(text).toContain(" 1  tool  noop()\n        < undefined\n");
   });
 
   test("truncates long summaries to 100 characters", () => {
@@ -176,12 +171,9 @@ describe("formatTimeline", () => {
       expect(summary).toHaveLength(100);
       expect(summary.endsWith("...")).toBe(true);
     }
-  });
-
-  test("does not split a character made of two code units", () => {
-    const text = formatTimeline(recording([chatStep("😀".repeat(150), 500)]), { color: false });
-    const request = text.split("\n")[3] ?? "";
-    expect(request.endsWith("😀...")).toBe(true);
+    // A character made of two code units is never split.
+    const emoji = formatTimeline(recording([chatStep("😀".repeat(150), 500)]), { color: false });
+    expect(emoji.split("\n")[3]?.endsWith("😀...")).toBe(true);
   });
 
   test("falls back to the HTTP status for errors and unknown APIs", () => {
@@ -196,18 +188,6 @@ describe("formatTimeline", () => {
     );
     expect(text).toContain("        > user: hi\n        < HTTP 500\n");
     expect(text).toContain(" 2  LLM   GET llm.example.com/v1/models\n        < HTTP 200\n");
-  });
-
-  test("pads step numbers to the widest one", () => {
-    const steps: Step[] = Array.from({ length: 10 }, () => ({
-      type: "tool" as const,
-      name: "t",
-      args: [],
-      outcome: { type: "return" as const, value: 1 },
-    }));
-    const text = formatTimeline(recording(steps), { color: false });
-    expect(text).toContain("\n 1  tool  t()\n");
-    expect(text).toContain("\n10  tool  t()\n");
   });
 
   test("escapes control characters from the recording instead of printing them", () => {
@@ -388,7 +368,7 @@ describe("formatTimeline", () => {
     for (const line of red) expect(line.startsWith("\u001b[31m")).toBe(true);
   });
 
-  test("keeps details under the step content with 100 or more steps", () => {
+  test("pads step numbers to the widest and keeps details under the step content", () => {
     const steps: Step[] = Array.from({ length: 100 }, () => ({
       type: "tool" as const,
       name: "t",
